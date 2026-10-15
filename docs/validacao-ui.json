@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "checks": [
+    "Criação de acesso com dados de demonstração",
+    "Cadastro de cliente pela interface",
+    "Reserva criada pela interface",
+    "Conflito de horário apresentado no formulário",
+    "Recebimento registrado pela interface",
+    "Reserva visível na grade da agenda",
+    "Navegação de todas as 31 telas implementadas sem erro JavaScript",
+    "Pedido com produtos e total calculado pelo servidor",
+    "Exportação CSV pelo navegador",
+    "Menu e layout mobile sem transbordamento horizontal",
+    "Logout e novo login"
+  ],
+  "javascriptErrors": []
+}
