@@ -2,10 +2,14 @@ import {createServer} from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
 import {randomBytes,randomUUID,scryptSync,timingSafeEqual} from 'node:crypto';
 import {readFile,mkdir} from 'node:fs/promises';
-import {dirname,join,resolve} from 'node:path';
+import path,{dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {modules,moduleMap,settings} from './modules.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
+export function isWithinDirectory(directory,filename,paths=path){
+ const relative=paths.relative(paths.resolve(directory),paths.resolve(filename));
+ return relative!==''&&relative!=='..'&&!relative.startsWith('..'+paths.sep)&&!paths.isAbsolute(relative);
+}
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const money=x=>Math.round(Number(x)*100)/100;
 const dayValid=x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&Number.isFinite(Date.parse(x+'T12:00:00Z'))&&new Date(x+'T12:00:00Z').toISOString().slice(0,10)===x;
@@ -216,7 +220,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    if(req.method!=='GET'&&req.method!=='HEAD')throw fail('Método não permitido.',405);
    const staticPath=path==='/modules.mjs'?join(root,'modules.mjs'):join(root,'public',path==='/'?'index.html':path.slice(1));
    const publicRoot=resolve(root,'public');let filename=staticPath;
-   if(staticPath!==join(root,'modules.mjs')&&!resolve(staticPath).startsWith(publicRoot+'/'))throw fail('Arquivo não encontrado.',404);
+   if(staticPath!==join(root,'modules.mjs')&&!isWithinDirectory(publicRoot,staticPath))throw fail('Arquivo não encontrado.',404);
    if(!/\.(html|js|css|svg|mjs|ico|png)$/.test(filename))filename=join(root,'public','index.html');
    let content;try{content=await readFile(filename);}catch{throw fail('Arquivo não encontrado.',404);}
    const ext=filename.split('.').pop(),types={html:'text/html',js:'text/javascript',mjs:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png'};res.writeHead(200,{'content-type':(types[ext]||'application/octet-stream')+'; charset=utf-8','cache-control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);

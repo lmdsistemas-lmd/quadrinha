@@ -38,7 +38,7 @@ npm run check
 npm test
 ```
 
-Foram executados oito testes de fluxos pela API: autenticação, CSRF, origem, reservas, conflitos, tarifas, recorrência atômica, recebimentos sem duplicação, estoque de pedidos, matrículas, permissões e persistência após reinício. Oito testes passaram.
+A suíte cobre carregamento da página inicial e dos arquivos públicos, reconhecimento de caminhos Windows/POSIX, autenticação, CSRF, origem, reservas, conflitos, tarifas, recorrência atômica, recebimentos sem duplicação, estoque de pedidos, matrículas, permissões e persistência após reinício. Os caminhos Windows são exercitados com a implementação `node:path.win32`; isso não equivale a executar o navegador em uma máquina Windows real.
 
 Também foram verificados onze fluxos no Chromium, incluindo criação de acesso com demonstração, cadastro de cliente, reserva, apresentação de conflito, recebimento, grade da agenda, navegação de todas as 31 telas de gestão verificadas, pedido, exportação CSV, layout/menu mobile e logout/login. A API de sessão e os processos de demonstração usados nessa verificação foram descartados; nenhum acesso de teste foi deixado no banco principal.
 

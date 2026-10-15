@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
-import {createApp} from '../server.mjs';
+import {join,posix,win32} from 'node:path';
+import {createApp,isWithinDirectory} from '../server.mjs';
 async function fixture(t,{databasePath=':memory:'}={}){
  const server=await createApp({databasePath});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(async()=>{await new Promise(resolve=>server.close(resolve));});
  const origin='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
@@ -17,6 +17,24 @@ async function fixture(t,{databasePath=':memory:'}={}){
  async function base(){await setup();const c=(await save('quadras',{name:'Quadra teste',floor:'Areia',sport:'Beach Tennis',covered:'Sim',online:'Sim',status:'Ativo'})).data;const customer=(await save('clientes',{name:'Cliente teste',kind:'Pessoa física',email:'cliente@example.com'})).data;return{court:c,customer};}
  return{server,request,setup,save,base,origin};
 }
+test('página inicial e recursos públicos carregam sem autenticação',async t=>{
+ const f=await fixture(t);
+ const resources=[['/','text/html'],['/app.js','text/javascript'],['/style.css','text/css'],['/favicon.svg','image/svg+xml'],['/modules.mjs','text/javascript']];
+ for(const [path,type] of resources){
+  const response=await fetch(f.origin+path);assert.equal(response.status,200,path);assert.ok(response.headers.get('content-type').startsWith(type),path);
+  const body=await response.text();assert.ok(body.length>0,path);if(path==='/')assert.match(body,/<script type="module" src="\/app.js"><\/script>/);
+ }
+ const head=await fetch(f.origin+'/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
+ for(const path of ['/server.mjs','/nao-existe.js']){const response=await fetch(f.origin+path);assert.equal(response.status,404);await response.text();}
+});
+test('arquivos públicos são reconhecidos em caminhos Windows e POSIX sem permitir escape',()=>{
+ for(const [paths,directory] of [[win32,'C:\\Users\\Teste\\Minha Quadra\\public'],[posix,'/home/teste/Minha Quadra/public']]){
+  for(const asset of ['index.html','app.js','style.css','images/logo.svg','..icone.svg'])assert.equal(isWithinDirectory(directory,paths.join(directory,asset),paths),true,asset);
+  for(const outside of [directory,paths.resolve(directory,'../server.mjs'),paths.resolve(directory,'../public-backup/index.html')])assert.equal(isWithinDirectory(directory,outside,paths),false,outside);
+ }
+ assert.equal(isWithinDirectory('C:\\quadrinha\\public','D:\\quadrinha\\public\\index.html',win32),false);
+ assert.equal(isWithinDirectory('C:\\Quadrinha\\public','c:\\quadrinha\\public\\index.html',win32),true);
+});
 test('acesso inicial, sessão, CSRF e restrição de origem',async t=>{
  const f=await fixture(t);assert.equal((await f.request('/bootstrap')).status,401);
  assert.equal((await f.request('/session')).data.needsSetup,true);
