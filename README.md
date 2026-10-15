@@ -2,7 +2,7 @@
 
 Aplicação independente criada a partir da observação autorizada do sistema de referência. Usa **banco separado e dados de demonstração**, conforme solicitado. O acesso e os dados do sistema original não são reutilizados pela nova aplicação.
 
-Esta é uma primeira implementação funcional. Ainda não existe equivalência completa com o produto original; a matriz em [docs/ESCOPO.md](docs/ESCOPO.md) distingue o que funciona do que falta reconstruir.
+Esta é uma implementação independente para testes, com menus, cabeçalhos, botões e cadastros revisados a partir da referência. Veja as capturas e as medidas em [docs/FIDELIDADE.md](docs/FIDELIDADE.md). Ainda não existe equivalência completa com o produto original; a matriz em [docs/ESCOPO.md](docs/ESCOPO.md) distingue o que funciona do que falta reconstruir.
 
 ## Executar
 
@@ -38,14 +38,15 @@ npm run check
 npm test
 ```
 
-A suíte cobre carregamento da página inicial e dos arquivos públicos, reconhecimento de caminhos Windows/POSIX, autenticação, CSRF, origem, reservas, conflitos, tarifas, recorrência atômica, recebimentos sem duplicação, estoque de pedidos, matrículas, permissões e persistência após reinício. Os caminhos Windows são exercitados com a implementação `node:path.win32`; isso não equivale a executar o navegador em uma máquina Windows real.
+A suíte cobre recursos públicos e fontes locais, caminhos Windows/POSIX, autenticação, CSRF, reservas, tarifas, recorrência atômica, recebimentos sem duplicação, estoque, matrículas, permissões, persistência, bloqueios entre quadras, horários configurados, importação CSV atômica, mensalidades sem duplicação, arquivos de relatórios e migração do banco anterior. Os caminhos Windows são exercitados com `node:path.win32`; isso não equivale a executar o navegador em uma máquina Windows real.
 
-Também foram verificados onze fluxos no Chromium, incluindo criação de acesso com demonstração, cadastro de cliente, reserva, apresentação de conflito, recebimento, grade da agenda, navegação de todas as 31 telas de gestão verificadas, pedido, exportação CSV, layout/menu mobile e logout/login. A API de sessão e os processos de demonstração usados nessa verificação foram descartados; nenhum acesso de teste foi deixado no banco principal.
+A validação no Chromium confere a hierarquia dos menus, as medidas dos botões em Quadras, cadastro/edição de cliente, cadastro de quadra, importação, geração de mensalidades, relatórios, abas da escolinha, 31 telas e menu móvel. Usa um banco temporário com dados fictícios. Para repetir, veja [docs/FIDELIDADE.md](docs/FIDELIDADE.md).
 
-- [Painel de demonstração](docs/painel-demo.png)
-- [Agenda de demonstração](docs/agenda-demo.png)
-- [Layout no celular](docs/painel-celular.png)
-- [Resultado dos testes de interface](docs/validacao-ui.json)
+- [Lista de quadras atualizada](docs/quadras-atualizado.png)
+- [Cadastro de cliente atualizado](docs/cliente-cadastro-atualizado.png)
+- [Agenda atualizada](docs/agenda-atualizada.png)
+- [Layout no celular](docs/clientes-celular-atualizado.png)
+- [Resultado da validação atual](docs/validacao-fidelidade.json)
 
 ## Organização
 
@@ -71,3 +72,7 @@ O código é mantido no repositório `lmdsistemas-lmd/quadrinha`. A aplicação 
 6. Cadastre um cliente, faça uma reserva na agenda e tente outra no mesmo horário para conferir o bloqueio. Registre o recebimento e acompanhe o lançamento no financeiro.
 
 O projeto é uma versão independente para testes. O proprietário tem apenas acesso web ao original; código do servidor original e uma instância de testes dele não são necessários para continuar esta implementação. As diferenças conhecidas estão em `docs/ESCOPO.md`.
+
+## Atualizar uma instalação existente
+
+Pare o servidor com `Ctrl+C`. Faça uma cópia de segurança da pasta `data/` com o processo parado. Baixe a versão atual pelo GitHub e substitua os arquivos de código da instalação, incluindo a pasta `public/`, `modules.mjs`, `server.mjs` e `package.json`. **Preserve a pasta `data/` existente**; não a apague nem a substitua por um banco de demonstração. Execute `npm start` e atualize o navegador com `Ctrl+F5`. A atualização adiciona as tabelas/colunas necessárias sem recriar o acesso inicial ou apagar os cadastros.

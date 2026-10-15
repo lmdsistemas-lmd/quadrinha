@@ -14,7 +14,7 @@ export const modules=[
  m('materiais','Materiais','Cadastros',[req('name','Nome'),money(),f('quantity','Quantidade','number'),active,notes]),
  m('socios','Sócios','Cadastros',[ref('customerId','Cliente','clientes'),req('name','Nome'),money('value','Mensalidade (R$)'),f('dueDay','Dia de vencimento','number'),active,notes]),
  m('cobrancas-socios','Cobranças Sócios','Cadastros',[ref('memberId','Sócio','socios'),req('name','Descrição'),money(),date('dueDate','Vencimento'),sel('status','Situação',['Pendente','Recebido','Cancelado']),notes]),
- m('agenda','Agenda / Locações','Agenda',[ref('courtId','Quadra','quadras'),ref('customerId','Cliente','clientes'),date(),req('start','Início','time'),req('end','Fim','time'),ref('tariffId','Tarifa','tarifas',false),money(),sel('kind','Tipo',['Avulsa','Mensalista','Aula']),sel('status','Pagamento',['Pendente','Recebido','Cancelado']),notes],['date','start','end','courtId','customerId','value','kind','status']),
+ m('agenda','Agenda / Locações','Agenda',[ref('courtId','Quadra','quadras'),ref('customerId','Cliente','clientes'),date(),req('start','Início','time'),req('end','Fim','time'),ref('tariffId','Tarifa','tarifas',false),money(),sel('kind','Tipo',['Avulsa','Mensalista','Aula','Evento','Reposição']),sel('status','Pagamento',['Pendente','Recebido','Cancelado']),notes],['date','start','end','courtId','customerId','value','kind','status']),
  m('cobrancas-agenda','Cobranças Agenda','Agenda',[ref('bookingId','Reserva','agenda'),req('name','Descrição'),money(),date('dueDate','Vencimento'),sel('status','Situação',['Pendente','Recebido','Cancelado']),notes]),
  m('escolinha','Gestão de Aulas','Aulas / Escolinha',[req('name','Nome da turma'),req('teacher','Professor'),ref('courtId','Quadra','quadras'),sel('sport','Esporte',['Beach Tennis','Futebol','Tênis','Futevôlei','Vôlei','Outro']),sel('day','Dia',['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']),req('start','Início','time'),req('end','Fim','time'),f('capacity','Vagas','number'),money('value','Mensalidade (R$)'),active,notes]),
  m('matriculas','Matrículas','Aulas / Escolinha',[ref('classId','Turma','escolinha'),ref('customerId','Aluno','clientes'),date(),active,notes]),
@@ -37,4 +37,48 @@ export const settings=[
  {key:'preferencias',title:'Preferências',fields:[req('name','Nome do centro esportivo'),f('email','E-mail','email'),f('phone','Telefone'),f('address','Endereço'),f('city','Cidade'),f('state','Estado'),sel('defaultDuration','Duração padrão',['30','60','90','120'])]},
  {key:'reserva-online',title:'Reserva Online',fields:[sel('status','Reservas públicas',['Desativadas']),f('notice','Mensagem para clientes','textarea')]}
 ];
+
+modules.push(
+ m('bloqueios-quadras','Bloqueios de Quadras','Cadastros',[ref('primaryCourtId','Quadra Principal','quadras'),ref('secondaryCourtId','Quadra Secundária','quadras')],['primaryCourtId','secondaryCourtId']),
+ m('professores','Professores','Aulas / Escolinha',[req('name','Nome'),f('email','E-mail','email'),f('phone','Telefone','tel'),active]),
+ m('planos-aulas','Planos','Aulas / Escolinha',[req('name','Nome'),money('value','Mensalidade (R$)'),f('lessons','Aulas por semana','number'),active]),
+ m('frequencias','Controle de Frequência','Aulas / Escolinha',[ref('registrationId','Aluno matriculado','matriculas'),date(),sel('status','Presença',['Presente','Falta','Justificada']),notes]),
+ m('noticias-centro','Notícias','Configuração',[req('name','Título'),req('content','Conteúdo','textarea'),sel('status','Situação',['Rascunho'])]),
+ m('notificacoes-app','Notificações','Configuração',[req('name','Título'),req('content','Mensagem','textarea'),sel('status','Situação',['Rascunho'])])
+);
+const sports=['Futebol de Campo','Futebol Society','Futsal','Futebol de Areia','Showbol','Tênis','Pádel','Voleibol','Handebol','Basquete','Squash','Bocha','Beach Tennis','Futevôlei','Sinuca (Snooker)','Videogame','Peteca de Areia','Outro','Natação','Patinação','Hóquei no Gelo','Curling','Vôlei de Praia','Cross training','Funcional','Pickleball','Paintball','Câmbio','Handebol de Areia'];
+const court=modules.find(x=>x.key==='quadras');
+court.fields.find(x=>x.key==='sport').options=sports;
+court.fields.push(f('sports','Esportes','multi',{options:sports}),sel('showNotes','Exibir campo de observação na reserva',['Não','Sim']),f('notesTitle','Título do campo de observação'),sel('notesRequired','Observação obrigatória',['Não','Sim']),f('onlineStartLimit','Limitar início das reservas online','checkbox'),f('fullDay','Permitir reserva por período integral','checkbox'),money('fullDayValue','Valor do período integral (R$)'),f('ignoreDailyLimit','Ignorar limite de horas por dia','checkbox'));
+for(const key of ['covered','online','showNotes','notesRequired'])court.fields.find(x=>x.key===key).presentation='radio';
+court.fields.find(x=>x.key==='status').presentation='radio';
+const customer=modules.find(x=>x.key==='clientes');customer.fields.push(active);customer.fields.find(x=>x.key==='kind').presentation='radio';
+for(const key of ['fornecedores-lanchonete','contatos-financeiro'])modules.find(x=>x.key===key).fields.push(active);
+modules.find(x=>x.key==='lancamentos').fields.push(sel('categoryType','Tipo de despesa',['Variável','Fixa']));
+
+
+modules.push(
+ m('creditos','Créditos','Financeiro',[ref('customerId','Cliente','clientes'),date(),money(),notes]),
+ m('planos-socios','Planos','Cadastros',[req('name','Nome do plano'),money('value','Mensalidade (R$)'),f('description','Descrição','textarea'),active]),
+ m('mensalidades-aulas','Mensalidades','Aulas / Escolinha',[ref('registrationId','Aluno matriculado','matriculas'),req('name','Descrição'),money(),date('dueDate','Vencimento'),sel('status','Situação',['Pendente','Recebido','Cancelado']),notes]),
+ m('cobrancas-aulas','Cobranças','Aulas / Escolinha',[ref('registrationId','Aluno matriculado','matriculas'),req('name','Descrição'),money(),date('dueDate','Vencimento'),sel('status','Situação',['Pendente','Recebido','Cancelado']),notes]),
+ m('contratos-aulas','Modelo de Contrato','Aulas / Escolinha',[req('name','Título'),req('content','Conteúdo do contrato','textarea'),active]),
+ m('aulas','Aulas','Aulas / Escolinha',[ref('classId','Turma','escolinha'),date(),req('start','Horário inicial','time'),req('end','Horário final','time'),notes])
+);
+modules.find(x=>x.key==='materiais').fields.push(sel('online','Exibido na Reserva Online',['Sim','Não']));
+
+modules.find(x=>x.key==='tarifas').fields.push(f('days','Dias da semana','multi',{options:['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']}),sel('duration','Duração',['Todas','30 minutos','1 hora','1h30','2 horas']),sel('modality','Modalidade',['Avulsa','Mensalista','Aula']));
+
 export const moduleMap=Object.fromEntries(modules.map(x=>[x.key,x]));
+export function openingHours(records,date){
+ const days=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+ const day=days[new Date(date+'T12:00:00Z').getUTCDay()];
+ const row=records.find(x=>x.day===day)||records.find(x=>x.day==='Todos os dias');
+ return row?{start:row.start,end:row.end,closed:row.status==='Inativo'}:{start:'07:00',end:'23:00',closed:false};
+}
+
+export function summarizeReport(rows){
+ const groups=new Map();
+ for(const row of rows){const status=row.status||'Ativo';const group=groups.get(status)||{status,count:0,value:0};group.count++;group.value=Math.round((group.value+Number(row.value||0))*100)/100;groups.set(status,group);}
+ return [...groups.values()].sort((a,b)=>a.status.localeCompare(b.status,'pt-BR'));
+}

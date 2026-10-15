@@ -1,0 +1,51 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "checks": [
+    "Hierarquia principal, ações de Quadras e geometria do cabeçalho",
+    "Cliente: abas preservam campos, Gravar, Listar e Alterar",
+    "Quadra: rádios, campos condicionais, seleção de esporte/piso e gravação",
+    "Importação CSV com produto persistido",
+    "Gerar Mensalidades pela interface",
+    "Relatório resumido, download CSV e Arquivos Gerados",
+    "Abas da escolinha e cadastro da turma correta",
+    "31 telas navegáveis sem erro JavaScript ou IDs duplicados",
+    "Menu no celular 390 px e página sem transbordamento horizontal"
+  ],
+  "screens": [
+    "quadras-atualizado.png",
+    "cliente-cadastro-atualizado.png",
+    "agenda-atualizada.png",
+    "clientes-celular-atualizado.png"
+  ],
+  "errors": [],
+  "headerGeometry": [
+    [
+      56,
+      198,
+      1328,
+      98
+    ],
+    [
+      973.703125,
+      229,
+      128.875,
+      36
+    ],
+    [
+      1112.578125,
+      229,
+      130.390625,
+      36
+    ],
+    [
+      1252.96875,
+      229,
+      102.03125,
+      36
+    ]
+  ],
+  "passed": true
+}

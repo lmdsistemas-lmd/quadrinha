@@ -1,6 +1,6 @@
 # Cobertura da nova versão
 
-A interface segue a estrutura observada no Quadra Fácil: cabeçalho branco, menu azul, cadastros em tabelas, cartões de indicadores, gráficos e agenda por quadra. Não foi realizado teste de igualdade de pixels, nem foi reconstruído todo o comportamento do servidor original.
+A interface foi revisada a partir de 36 telas autenticadas da referência, incluindo menus, ações de cabeçalho, formulários e abas. O cabeçalho de Quadras foi comparado por medidas no Chromium em 1440 px; veja [FIDELIDADE.md](FIDELIDADE.md). Isso não certifica igualdade de pixels de todas as telas nem equivalência completa com o servidor original.
 
 ## Implementado e validado
 
@@ -8,27 +8,27 @@ A interface segue a estrutura observada no Quadra Fácil: cabeçalho branco, men
 | --- | --- | --- |
 | Acesso | Primeiro administrador, login/logout, senhas com scrypt e salt, sessão HttpOnly/SameSite, CSRF, limite de tentativas, usuários e papéis | Sem recuperação de senha, MFA ou trilha de login administrativa |
 | Cadastros | Clientes, quadras, tarifas, materiais, sócios, fornecedores, categorias, produtos, contas e contatos | Formulários são uma seleção dos campos observados, não uma cópia integral de todos os campos do original |
-| Agenda | Grade diária, reservas por cliente/quadra, conflitos, horários adjacentes, repetição semanal e tarifa por hora calculada no servidor | Das 07h às 23h, intervalos de 30 minutos; não aplica o cadastro de horários à grade; sem feriados, franquias, pacote de dias, rateios ou séries editáveis em lote |
+| Agenda | Grade diária, reservas por cliente/quadra, conflitos, bloqueios entre quadras vinculadas, horários adjacentes, repetição semanal e tarifa por hora calculada no servidor | Aplica o cadastro de horários por dia, com padrão de 07h às 23h e intervalos de 30 minutos; sem feriados, franquias, pacote de dias, rateios ou séries editáveis em lote |
 | Recebimentos | Reserva recebida gera um lançamento; repetição do recebimento não duplica; cobrança da reserva sincroniza o status e não gera segunda receita | Apenas recebimento integral, sem pagamentos parciais e sem estorno bancário. Não processa cartão, Pix ou boleto |
 | Financeiro | Lançamentos, receitas/despesas, filtro por período, fluxo de caixa, cobranças e resumo | Datas seguem o registro de origem. Sem conciliação bancária, parcelamentos, recorrência de cobranças, fechamento ou contabilidade fiscal |
-| Lanchonete | Produtos, movimentações de estoque, mesas/comandas e pedidos com itens e total no servidor | Pedido aberto reserva estoque; cancelar o pedido devolve itens. Receber gera lançamento. Sem impressão de cozinha, NFC-e ou divisão de comanda |
-| Aulas | Turmas, matrículas, capacidade e prevenção de matrícula duplicada | Não agenda automaticamente horários da turma, não registra presença e não gera mensalidades |
-| Sócios | Cadastro com valor de mensalidade e cobranças manuais | Sem planos avançados, geração automática de mensalidades ou benefícios por associado |
-| Relatórios | Exportação CSV dos registros com neutralização de fórmulas de planilha | Sem os PDFs, agendamento e arquivos gerados do sistema original |
+| Lanchonete | Produtos, importação CSV atômica, movimentações de estoque, mesas/comandas e pedidos com itens e total no servidor | Pedido aberto reserva estoque; cancelar o pedido devolve itens. Receber gera lançamento. Sem impressão de cozinha, NFC-e ou divisão de comanda |
+| Aulas | Professores, turmas, planos, matrículas, capacidade, frequência, aulas, modelos de contrato e cobranças/mensalidades manuais | Não agenda automaticamente horários da turma nem gera suas mensalidades em lote; sem assinatura de contratos |
+| Sócios | Cadastro, planos, cobranças e geração de mensalidades por mês sem duplicação | A geração usa o valor e o dia de vencimento do associado. Sem benefícios ou regras avançadas de planos |
+| Relatórios | Busca por módulo/período; filtros de status/tipo/origem na agenda; relatório detalhado/resumido e CSV preservado em Arquivos Gerados, com neutralização de fórmulas | Resumo por situação. Sem PDF, agendamento, filtro por usuário/cliente ou todos os detalhamentos de impressão do original; esses controles são identificados como pendentes |
 | Configuração | Usuários, preferências, cadastro de horários e espaços | Algumas configurações são apenas cadastro e não controlam todos os comportamentos da aplicação; ver limites de Agenda |
 | Dashboard | Indicadores a partir do banco próprio, receitas/despesas por dia, composição de receitas e próximas reservas | Métricas e fórmulas não foram comparadas com o backend original. Não há comparação automática com o período anterior |
 
-Todos os cadastros têm persistência real, busca e exportação. Referências são verificadas no servidor. Exclusões com vínculos são bloqueadas; a exclusão de registros comuns é lógica. Registros financeiros gerados a partir de outro módulo não podem ser alterados diretamente.
+Os cadastros têm persistência real e busca. A exportação está nos relatórios dos módulos disponíveis. Referências são verificadas no servidor. Exclusões com vínculos são bloqueadas; a exclusão de registros comuns é lógica. Registros financeiros gerados a partir de outro módulo não podem ser alterados diretamente.
 
 ## Pendente para equivalência com o original
 
 - Paridade visual detalhada de todas as telas, formulários, modais, estados vazios, erros e permissões.
 - Regras completas de tarifas, planos, sócios, recorrência e pagamentos parciais.
 - Recuperação de senha e administração/auditoria operacional.
-- Aulas com reserva de quadra, frequência e mensalidades.
+- Reserva automática de quadra para aulas e geração em lote das mensalidades escolares.
 - Portal público de reserva online, aplicativo e comunicações.
 - WhatsApp, SMS, Pagar.me, Pix, boleto, cartão e emissão fiscal.
-- Notificações, documentos, arquivos de relatórios, compras, cartões e recursos comerciais do sistema original.
+- Envio de notificações, documentos oficiais, compras, cartões e recursos comerciais do sistema original.
 - Homologação com os responsáveis pelas regras do negócio e revisão antes de usar dados reais.
 
 Os serviços externos estão identificados como pendentes na interface. Não são simulados como pagamentos, mensagens ou notas fiscais efetivamente emitidos.

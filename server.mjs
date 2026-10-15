@@ -4,7 +4,7 @@ import {randomBytes,randomUUID,scryptSync,timingSafeEqual} from 'node:crypto';
 import {readFile,mkdir} from 'node:fs/promises';
 import path,{dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {modules,moduleMap,settings} from './modules.mjs';
+import {modules,moduleMap,settings,openingHours,summarizeReport} from './modules.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 export function isWithinDirectory(directory,filename,paths=path){
  const relative=paths.relative(paths.resolve(directory),paths.resolve(filename));
@@ -20,16 +20,19 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
  if(databasePath!==':memory:')await mkdir(dirname(databasePath),{recursive:true});
  const db=new DatabaseSync(databasePath);db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
  db.exec(`CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,module TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT);CREATE INDEX IF NOT EXISTS records_module ON records(module,deleted_at);CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,data TEXT NOT NULL);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,time TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,module TEXT NOT NULL,record_id TEXT NOT NULL);`);
+ db.exec('CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,name TEXT NOT NULL,module TEXT NOT NULL,content BLOB NOT NULL,created_at TEXT NOT NULL,record_count INTEGER NOT NULL)');
+ const userColumns=new Set(db.prepare('PRAGMA table_info(users)').all().map(x=>x.name));
+ for(const column of ['created_at','last_login'])if(!userColumns.has(column))db.exec('ALTER TABLE users ADD COLUMN '+column+' TEXT');
  const sessions=new Map(), attempts=new Map();
  const rows=key=>db.prepare('SELECT * FROM records WHERE module=? AND deleted_at IS NULL ORDER BY created_at DESC').all(key).map(r=>({id:r.id,...JSON.parse(r.data),createdAt:r.created_at}));
- const publicUsers=()=>db.prepare('SELECT id,name,email,role FROM users ORDER BY name').all();
+ const publicUsers=()=>db.prepare('SELECT id,name,email,role,created_at AS createdAt,last_login AS lastLogin FROM users ORDER BY name').all();
  const get=(key,id)=>rows(key).find(r=>r.id===id);
  const put=(key,id,data)=>{const{createdAt,...clean}=data;db.prepare('INSERT INTO records(id,module,data,created_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted_at=NULL').run(id,key,JSON.stringify(clean),createdAt||new Date().toISOString());};
  const audit=(actor,action,key,id)=>db.prepare('INSERT INTO audit(time,actor,action,module,record_id) VALUES(?,?,?,?,?)').run(new Date().toISOString(),actor,action,key,id);
  const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const v=fn();db.exec('COMMIT');return v;}catch(e){db.exec('ROLLBACK');throw e;}};
  const adjustStock=(id,amount)=>{const p=get('produtos-lanchonete',id);if(!p)throw fail('Produto não encontrado.');const stock=Number(p.stock||0)+amount;if(stock<0)throw fail('Estoque insuficiente para '+p.name+'.',409);put('produtos-lanchonete',id,{...p,stock});};
  const syncLedger=(key,id,data)=>{
-  if(!['agenda','pedidos-lanchonete','cobrancas-avulso','cobrancas-socios','cobrancas-agenda'].includes(key))return;
+  if(!['agenda','pedidos-lanchonete','cobrancas-avulso','cobrancas-socios','cobrancas-agenda','mensalidades-aulas','cobrancas-aulas'].includes(key))return;
   const ledgerId='recebimento-'+id;
   if(data.status==='Recebido'){
    // Booking charges and the booking itself must not generate duplicate receipts.
@@ -52,7 +55,13 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
   const def=moduleMap[key];if(!def)throw fail('Módulo não encontrado.',404);
   const d={};
   for(const f of def.fields){
-   let value=input[f.key]??(f.type==='select'?f.options[0]:f.type==='number'?0:'');
+   let value=input[f.key]??old?.[f.key]??(f.type==='select'?f.options[0]:f.type==='number'?0:'');
+   if(f.type==='multi'){
+    if(value==='')value=[];
+    if(!Array.isArray(value)||value.some(x=>!f.options.includes(x)))throw fail('Seleção inválida para '+f.label+'.');
+    d[f.key]=[...new Set(value)];continue;
+   }
+   if(f.type==='checkbox'){d[f.key]=value===true||value==='on'||value==='true';continue;}
    if(f.type==='items'){
     if(!Array.isArray(value)||!value.length||value.length>100)throw fail('Adicione entre 1 e 100 itens ao pedido.');
     d.items=value.map(item=>{const product=get('produtos-lanchonete',item.productId);if(!product)throw fail('Produto inválido.');const quantity=Number(item.quantity);if(!Number.isInteger(quantity)||quantity<=0||quantity>10000)throw fail('Quantidade de produto inválida.');return{productId:product.id,name:product.name,quantity,unitPrice:old?.items?.find(x=>x.productId===product.id)?.unitPrice??product.value};});continue;
@@ -73,11 +82,23 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    d[f.key]=value;
   }
   if(d.start&&d.end&&minutes(d.start)>=minutes(d.end))throw fail('O horário final deve ser posterior ao inicial.');
+  if(key==='bloqueios-quadras'){
+   if(d.primaryCourtId===d.secondaryCourtId)throw fail('Selecione duas quadras diferentes.');
+   if(rows(key).some(x=>x.id!==old?.id&&((x.primaryCourtId===d.primaryCourtId&&x.secondaryCourtId===d.secondaryCourtId)||(x.primaryCourtId===d.secondaryCourtId&&x.secondaryCourtId===d.primaryCourtId))))throw fail('Este bloqueio já está cadastrado.',409);
+   const bookings=rows('agenda').filter(x=>x.status!=='Cancelado');
+   if(bookings.some(a=>a.courtId===d.primaryCourtId&&bookings.some(b=>b.courtId===d.secondaryCourtId&&a.date===b.date&&minutes(a.start)<minutes(b.end)&&minutes(a.end)>minutes(b.start))))throw fail('Existem reservas conflitantes entre essas quadras.',409);
+  }
   if(key==='agenda'){
-   if(minutes(d.start)%30||minutes(d.end)%30||minutes(d.start)<420||minutes(d.end)>1380)throw fail('A agenda desta versão atende das 07h às 23h, em intervalos de 30 minutos.');
+   const hours=openingHours(rows('horarios'),d.date);
+   if(hours.closed)throw fail('O centro está fechado neste dia.');
+   if(minutes(d.start)%30||minutes(d.end)%30||minutes(d.start)<minutes(hours.start)||minutes(d.end)>minutes(hours.end))throw fail('A reserva deve respeitar o horário de funcionamento e os intervalos de 30 minutos.');
    const court=get('quadras',d.courtId);if(court.status!=='Ativo')throw fail('A quadra está inativa.');
    if(d.tariffId){const rate=get('tarifas',d.tariffId);if(rate.courtId!==d.courtId)throw fail('A tarifa não pertence à quadra selecionada.');if(rate.status!=='Ativo'||minutes(d.start)<minutes(rate.start)||minutes(d.end)>minutes(rate.end))throw fail('A tarifa não está disponível neste horário.');d.value=money(rate.value*(minutes(d.end)-minutes(d.start))/60);}
-   if(d.status!=='Cancelado'&&rows('agenda').some(x=>x.id!==old?.id&&x.status!=='Cancelado'&&x.courtId===d.courtId&&x.date===d.date&&minutes(d.start)<minutes(x.end)&&minutes(d.end)>minutes(x.start)))throw fail('Já existe uma reserva para esta quadra nesse horário.',409);
+   const linked=new Set([d.courtId]);for(const block of rows('bloqueios-quadras')){
+    if(block.primaryCourtId===d.courtId)linked.add(block.secondaryCourtId);
+    if(block.secondaryCourtId===d.courtId)linked.add(block.primaryCourtId);
+   }
+   if(d.status!=='Cancelado'&&rows('agenda').some(x=>x.id!==old?.id&&x.status!=='Cancelado'&&linked.has(x.courtId)&&x.date===d.date&&minutes(d.start)<minutes(x.end)&&minutes(d.end)>minutes(x.start)))throw fail('Já existe uma reserva para esta quadra nesse horário.',409);
   }
   if(key==='escolinha'&&d.capacity&&!Number.isInteger(d.capacity))throw fail('Vagas devem ser inteiras.');
   if(key==='matriculas'&&d.status==='Ativo'){
@@ -145,13 +166,13 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
      if(path==='/api/setup'){
       if(publicUsers().length)throw fail('O acesso inicial já foi criado.',409);
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<10||password.length>200||!String(input.name||'').trim())throw fail('Informe nome, e-mail válido e senha de 10 a 200 caracteres.');
-      transaction(()=>{const id=randomUUID();db.prepare('INSERT INTO users VALUES(?,?,?,?,?)').run(id,String(input.name).slice(0,100),email,hashPassword(password),'Administrador');if(input.demo===true)seed();found=publicUsers().find(x=>x.id===id);});
+      transaction(()=>{const id=randomUUID();db.prepare('INSERT INTO users(id,name,email,password,role,created_at,last_login) VALUES(?,?,?,?,?,?,?)').run(id,String(input.name).slice(0,100),email,hashPassword(password),'Administrador',new Date().toISOString(),new Date().toISOString());if(input.demo===true)seed();found=publicUsers().find(x=>x.id===id);});
      }else{
       const key=req.socket.remoteAddress;let attempt=attempts.get(key);if(!attempt||attempt.until<Date.now())attempt={count:0,until:Date.now()+15*60*1000};
       if(attempt.count>=10)throw fail('Muitas tentativas. Aguarde 15 minutos.',429);
       const stored=db.prepare('SELECT * FROM users WHERE email=?').get(email);
       if(!stored||password.length>200||!verifyPassword(password,stored.password)){attempt.count++;attempts.set(key,attempt);throw fail('E-mail ou senha incorretos.',401);}
-      attempts.delete(key);const{password:hash,...safe}=stored;found=safe;
+      attempts.delete(key);db.prepare('UPDATE users SET last_login=? WHERE id=?').run(new Date().toISOString(),stored.id);found=publicUsers().find(x=>x.id===stored.id);
      }
      if(cookie)sessions.delete(cookie);
      const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');sessions.set(token,{userId:found.id,csrf,expires:Date.now()+8*60*60*1000});
@@ -163,7 +184,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(path==='/api/bootstrap'&&req.method==='GET'){
      const records=Object.fromEntries(modules.map(x=>[x.key,x.key==='usuarios'?(user.role==='Administrador'?publicUsers():[]):rows(x.key)]));
      const preferences=Object.fromEntries(db.prepare('SELECT * FROM settings').all().map(x=>[x.key,JSON.parse(x.data)]));
-     json(res,200,{records,settings:preferences,user});return;
+     json(res,200,{records,settings:preferences,user,reportFiles:db.prepare('SELECT id,name,module,created_at AS createdAt,record_count AS count FROM reports ORDER BY created_at DESC').all()});return;
     }
     if(user.role==='Consulta'&&req.method!=='GET')throw fail('Sua permissão permite apenas consulta.',403);
     if(path.startsWith('/api/settings/')&&req.method==='PUT'){
@@ -171,6 +192,48 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
      const key=path.split('/')[3],def=settings.find(x=>x.key===key);if(!def)throw fail('Configuração não encontrada.',404);
      const input=await readBody(req),data={};for(const field of def.fields){const value=String(input[field.key]||'').slice(0,5000);if(field.options&&!field.options.includes(value))throw fail('Opção inválida.');data[field.key]=value;}
      db.prepare('INSERT OR REPLACE INTO settings VALUES(?,?)').run(key,JSON.stringify(data));json(res,200,{ok:true});return;
+    }
+    if(path==='/api/reports'&&req.method==='POST'){
+     const input=await readBody(req),def=moduleMap[input.module];
+     if(!def||!['agenda','creditos','socios','escolinha','pedidos-lanchonete'].includes(def.key))throw fail('Selecione um relatório disponível.');
+     for(const key of ['from','to'])if(input[key]&&!dayValid(input[key]))throw fail('Período inválido.');
+     if(input.from&&input.to&&input.from>input.to)throw fail('Período inválido.');
+     for(const key of ['statuses','kinds','origins'])if(input[key]&&(!Array.isArray(input[key])||input[key].some(x=>typeof x!=='string')))throw fail('Filtro inválido.');
+     const records=rows(def.key).filter(row=>{const receipt=get('lancamentos','recebimento-'+row.id);const date=input.dateSource==='receipt'?(receipt?.createdAt||row.date||row.dueDate||row.createdAt||'').slice(0,10):(row.date||row.dueDate||row.createdAt||'').slice(0,10);return (!input.from||date>=input.from)&&(!input.to||date<=input.to)&&(!input.statuses||input.statuses.includes(row.status||'Ativo'))&&(!input.kinds||input.kinds.includes(row.kind))&&(!input.origins||input.origins.includes('system'));});
+     const quote=value=>{let text=String(value??'');if(/^[=+\-@\t\r]/.test(text))text="'"+text;return '\"'+text.replaceAll('\"','\"\"')+'\"';};
+     const fields=def.columns.map(key=>def.fields.find(f=>f.key===key)||{key,label:key});
+     const lines=[fields.map(f=>quote(f.label)).join(';'),...records.map(row=>fields.map(f=>{const value=f.type==='ref'?get(f.ref,row[f.key])?.name||'':f.type==='money'?Number(row[f.key]||0).toFixed(2).replace('.',','):row[f.key];return quote(value);}).join(';'))];
+     if(input.mode==='summary'){lines.length=0;lines.push(['Situação','Quantidade','Total (R$)'].map(quote).join(';'));for(const group of summarizeReport(records))lines.push([group.status,group.count,group.value.toFixed(2).replace('.',',')].map(quote).join(';'));}
+     const content=Buffer.from('\uFEFF'+lines.join('\r\n'),'utf8'),id=randomUUID(),name=def.key+'-'+new Date().toISOString().slice(0,10)+'.csv';
+     db.prepare('INSERT INTO reports VALUES(?,?,?,?,?,?)').run(id,name,def.key,content,new Date().toISOString(),records.length);audit(user.id,'generate','reports',id);
+     json(res,201,{id,name,count:records.length});return;
+    }
+    const reportMatch=path.match(/^\/api\/reports\/([a-f0-9-]+)$/);
+    if(reportMatch){
+     const report=db.prepare('SELECT * FROM reports WHERE id=?').get(reportMatch[1]);if(!report)throw fail('Arquivo não encontrado.',404);
+     if(req.method==='GET'){res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="'+report.name+'"','Cache-Control':'no-store'});res.end(Buffer.from(report.content));return;}
+     if(req.method==='DELETE'){db.prepare('DELETE FROM reports WHERE id=?').run(report.id);json(res,200,{ok:true});return;}
+     throw fail('Método não permitido.',405);
+    }
+    if(path==='/api/memberships/generate'&&req.method==='POST'){
+     const input=await readBody(req),period=String(input.period||'');
+     if(!/^\d{4}-\d{2}$/.test(period)||!dayValid(period+'-01'))throw fail('Selecione um mês válido.');
+     const result=transaction(()=>{let created=0,skipped=0;
+      const maxDay=new Date(Number(period.slice(0,4)),Number(period.slice(5,7)),0).getDate();
+      for(const member of rows('socios').filter(x=>x.status==='Ativo')){
+       const id='mensalidade-'+member.id+'-'+period;
+       if(get('cobrancas-socios',id)){skipped++;continue;}
+       const dueDay=Math.min(maxDay,Math.max(1,Math.trunc(Number(member.dueDay)||1)));
+       saveRecord('cobrancas-socios',{memberId:member.id,name:'Mensalidade '+period+' · '+member.name,value:member.value,dueDate:period+'-'+String(dueDay).padStart(2,'0'),status:'Pendente'},id);
+       audit(user.id,'create','cobrancas-socios',id);created++;
+      }return{created,skipped};
+     });json(res,200,result);return;
+    }
+    if(path==='/api/products/import'&&req.method==='POST'){
+     const input=await readBody(req);
+     if(!Array.isArray(input.records)||!input.records.length||input.records.length>500)throw fail('Importe entre 1 e 500 produtos por arquivo.');
+     const result=transaction(()=>input.records.map(record=>{const data=saveRecord('produtos-lanchonete',record);audit(user.id,'import','produtos-lanchonete',data.id);return data.id;}));
+     json(res,201,{created:result.length});return;
     }
     const match=path.match(/^\/api\/records\/([a-z-]+)(?:\/([a-zA-Z0-9-]+))?$/);
     if(!match)throw fail('Rota não encontrada.',404);
@@ -187,7 +250,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
       const email=String(input.email||'').trim().toLowerCase();if(!input.name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!['Administrador','Atendente','Consulta'].includes(input.role))throw fail('Dados de usuário inválidos.');
       if((!old||input.password)&& (String(input.password||'').length<10||String(input.password).length>200))throw fail('Use uma senha de 10 a 200 caracteres.');
       if(publicUsers().some(x=>x.email===email&&x.id!==id))throw fail('E-mail já cadastrado.',409);
-      const userId=id||randomUUID();db.prepare('INSERT INTO users VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,email=excluded.email,password=excluded.password,role=excluded.role').run(userId,String(input.name).slice(0,100),email,input.password?hashPassword(String(input.password)):old.password,input.role);audit(user.id,'save',key,userId);return publicUsers().find(x=>x.id===userId);
+      const userId=id||randomUUID();db.prepare('INSERT INTO users(id,name,email,password,role,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,email=excluded.email,password=excluded.password,role=excluded.role').run(userId,String(input.name).slice(0,100),email,input.password?hashPassword(String(input.password)):old.password,input.role,new Date().toISOString());audit(user.id,'save',key,userId);return publicUsers().find(x=>x.id===userId);
      });json(res,200,result);return;
     }
     if(req.method==='GET'){json(res,200,id?get(key,id)||null:rows(key));return;}
@@ -195,7 +258,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(req.method==='DELETE'){
      const result=transaction(()=>{
       const old=get(key,id);if(!old)throw fail('Registro não encontrado.',404);if(old.sourceId)throw fail('Recebimento automático: altere o registro de origem.',409);
-      if(['agenda','pedidos-lanchonete','cobrancas-avulso','cobrancas-socios','cobrancas-agenda'].includes(key)&&old.status==='Recebido')throw fail('Registros recebidos devem ser preservados. Estorno não disponível nesta versão.',409);
+      if(['agenda','pedidos-lanchonete','cobrancas-avulso','cobrancas-socios','cobrancas-agenda','mensalidades-aulas','cobrancas-aulas'].includes(key)&&old.status==='Recebido')throw fail('Registros recebidos devem ser preservados. Estorno não disponível nesta versão.',409);
       for(const def of modules){for(const field of def.fields.filter(x=>x.ref===key))if(rows(def.key).some(x=>x[field.key]===id))throw fail('Este registro está vinculado a '+def.title+'.',409);}
       if(key==='produtos-lanchonete'&&rows('pedidos-lanchonete').some(x=>x.items.some(y=>y.productId===id)))throw fail('Produto vinculado a pedidos.',409);
       if(key==='estoque-lanchonete')adjustStock(old.productId,(old.kind==='Entrada'?-1:1)*old.quantity);
@@ -221,9 +284,9 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    const staticPath=path==='/modules.mjs'?join(root,'modules.mjs'):join(root,'public',path==='/'?'index.html':path.slice(1));
    const publicRoot=resolve(root,'public');let filename=staticPath;
    if(staticPath!==join(root,'modules.mjs')&&!isWithinDirectory(publicRoot,staticPath))throw fail('Arquivo não encontrado.',404);
-   if(!/\.(html|js|css|svg|mjs|ico|png)$/.test(filename))filename=join(root,'public','index.html');
+   if(!/\.(html|js|css|svg|mjs|ico|png|woff2|woff|ttf)$/.test(filename))filename=join(root,'public','index.html');
    let content;try{content=await readFile(filename);}catch{throw fail('Arquivo não encontrado.',404);}
-   const ext=filename.split('.').pop(),types={html:'text/html',js:'text/javascript',mjs:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png'};res.writeHead(200,{'content-type':(types[ext]||'application/octet-stream')+'; charset=utf-8','cache-control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
+   const ext=filename.split('.').pop(),types={html:'text/html',js:'text/javascript',mjs:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',woff2:'font/woff2',woff:'font/woff',ttf:'font/ttf'};res.writeHead(200,{'content-type':(types[ext]||'application/octet-stream')+'; charset=utf-8','cache-control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
   }catch(e){json(res,e.status||500,{error:e.status?e.message:'Não foi possível concluir a operação.'});}
  });
  server.on('close',()=>{db.close();sessions.clear();});return server;

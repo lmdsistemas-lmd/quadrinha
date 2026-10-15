@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -15,11 +16,11 @@ async function fixture(t,{databasePath=':memory:'}={}){
  const setup=()=>request('/setup',{name:'Gestor de teste',email:'gestor@example.com',password:'SenhaDeTeste-2026',demo:false});
  const save=(key,data,id)=>request('/records/'+key+(id?'/'+id:''),data,id?'PUT':'POST');
  async function base(){await setup();const c=(await save('quadras',{name:'Quadra teste',floor:'Areia',sport:'Beach Tennis',covered:'Sim',online:'Sim',status:'Ativo'})).data;const customer=(await save('clientes',{name:'Cliente teste',kind:'Pessoa física',email:'cliente@example.com'})).data;return{court:c,customer};}
- return{server,request,setup,save,base,origin};
+ return{server,request,setup,save,base,origin,download:path=>fetch(origin+'/api'+path,{headers:{cookie}})};
 }
 test('página inicial e recursos públicos carregam sem autenticação',async t=>{
  const f=await fixture(t);
- const resources=[['/','text/html'],['/app.js','text/javascript'],['/style.css','text/css'],['/favicon.svg','image/svg+xml'],['/modules.mjs','text/javascript']];
+ const resources=[['/','text/html'],['/app.js','text/javascript'],['/style.css','text/css'],['/favicon.svg','image/svg+xml'],['/modules.mjs','text/javascript'],['/reference-ui.mjs','text/javascript'],['/reference.css','text/css'],['/fontawesome.css','text/css'],['/assets/logo.png','image/png'],['/assets/open-sans-latin-400-normal.woff2','font/woff2']];
  for(const [path,type] of resources){
   const response=await fetch(f.origin+path);assert.equal(response.status,200,path);assert.ok(response.headers.get('content-type').startsWith(type),path);
   const body=await response.text();assert.ok(body.length>0,path);if(path==='/')assert.match(body,/<script type="module" src="\/app.js"><\/script>/);
@@ -105,4 +106,65 @@ test('os dados continuam após reiniciar o servidor com o mesmo banco',async t=>
  const res=await fetch(origin+'/api/setup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'Gestor',email:'persist@example.com',password:'SenhaPersistencia2026',demo:true})});assert.equal(res.status,200);await res.json();await new Promise(resolve=>server1.close(resolve));
  const f=await fixture(t,{databasePath});assert.equal((await f.request('/session')).data.needsSetup,false);assert.equal((await f.request('/login',{email:'persist@example.com',password:'SenhaPersistencia2026'})).status,200);
  const data=(await f.request('/bootstrap')).data;assert.equal(data.records.quadras.length,3);assert.equal(data.records.agenda.length,28);assert.equal(data.settings.demo,true);
+});
+
+test('bloqueios entre quadras impedem conflito nas duas direções e preservam a grade',async t=>{
+ const f=await fixture(t),{court,customer}=await f.base();
+ const second=(await f.save('quadras',{name:'Quadra secundária'})).data;
+ assert.equal((await f.save('bloqueios-quadras',{primaryCourtId:court.id,secondaryCourtId:court.id})).status,400);
+ assert.equal((await f.save('bloqueios-quadras',{primaryCourtId:court.id,secondaryCourtId:second.id})).status,201);
+ assert.equal((await f.save('bloqueios-quadras',{primaryCourtId:second.id,secondaryCourtId:court.id})).status,409);
+ const booking={courtId:court.id,customerId:customer.id,date:'2026-10-20',start:'18:00',end:'19:00',value:100,status:'Pendente'};
+ assert.equal((await f.save('agenda',booking)).status,201);
+ assert.equal((await f.save('agenda',{...booking,courtId:second.id})).status,409);
+ assert.equal((await f.save('agenda',{...booking,courtId:second.id,start:'19:00',end:'20:00'})).status,201);
+ assert.equal((await f.save('agenda',{...booking,start:'19:30',end:'20:30'})).status,409);
+});
+test('horários cadastrados controlam abertura, fechamento e dia sem atendimento',async t=>{
+ const f=await fixture(t),{court,customer}=await f.base();
+ const hours=(await f.save('horarios',{name:'Todos',day:'Todos os dias',start:'06:00',end:'22:00',status:'Ativo'})).data;
+ const booking={courtId:court.id,customerId:customer.id,date:'2026-10-20',start:'06:00',end:'07:00',value:100,status:'Pendente'};
+ assert.equal((await f.save('agenda',booking)).status,201);
+ assert.equal((await f.save('agenda',{...booking,start:'22:00',end:'23:00'})).status,400);
+ await f.save('horarios',{...hours,day:'Quarta',status:'Inativo'});
+ assert.equal((await f.save('agenda',{...booking,date:'2026-10-21'})).status,400);
+});
+test('mensalidades são geradas uma vez por sócio e mês com vencimento válido',async t=>{
+ const f=await fixture(t),{customer}=await f.base();
+ await f.save('socios',{customerId:customer.id,name:'Associado ativo',value:130,dueDay:31,status:'Ativo'});
+ await f.save('socios',{customerId:customer.id,name:'Associado inativo',value:130,dueDay:15,status:'Inativo'});
+ assert.deepEqual((await f.request('/memberships/generate',{period:'2027-02'})).data,{created:1,skipped:0});
+ assert.deepEqual((await f.request('/memberships/generate',{period:'2027-02'})).data,{created:0,skipped:1});
+ const charges=(await f.request('/records/cobrancas-socios')).data;
+ assert.equal(charges.length,1);assert.equal(charges[0].dueDate,'2027-02-28');assert.equal(charges[0].value,130);
+ assert.equal((await f.request('/memberships/generate',{period:'2027-13'})).status,400);
+});
+test('importação de produtos é atômica e não deixa importação parcial',async t=>{
+ const f=await fixture(t);await f.setup();const product={name:'Produto CSV',cost:2,value:5,stock:10,status:'Ativo'};
+ assert.equal((await f.request('/products/import',{records:[product,{...product,stock:-1}]})).status,400);
+ assert.equal((await f.request('/records/produtos-lanchonete')).data.length,0);
+ assert.deepEqual((await f.request('/products/import',{records:[product,{...product,name:'Segundo'}]})).data,{created:2});
+ assert.equal((await f.request('/records/produtos-lanchonete')).data.length,2);
+});
+test('arquivos de relatório preservam o retrato gerado, filtros e resumo',async t=>{
+ const f=await fixture(t),{court,customer}=await f.base();
+ const booking=(await f.save('agenda',{courtId:court.id,customerId:customer.id,date:'2026-10-20',start:'18:00',end:'19:00',value:100,status:'Pendente'})).data;
+ const report=await f.request('/reports',{module:'agenda',from:'2026-10-20',to:'2026-10-20',statuses:['Pendente'],mode:'summary'});
+ assert.equal(report.status,201);assert.equal(report.data.count,1);
+ const before=await (await f.download('/reports/'+report.data.id)).text();assert.match(before,/Situação/);assert.match(before,/100,00/);
+ await f.save('agenda',{...booking,value:200},booking.id);
+ const after=await (await f.download('/reports/'+report.data.id)).text();assert.equal(after,before);
+ assert.equal((await f.request('/bootstrap')).data.reportFiles.length,1);
+ assert.equal((await f.request('/reports',{module:'agenda',origins:['online']})).data.count,0);
+ assert.equal((await f.request('/reports',{module:'usuarios'})).status,400);
+ assert.equal((await f.request('/reports',{module:'agenda',statuses:'Pendente'})).status,400);
+ assert.equal((await f.request('/reports/'+report.data.id,{},'DELETE')).status,200);
+ assert.equal((await f.download('/reports/'+report.data.id)).status,404);
+});
+test('atualização migra a tabela antiga de usuários sem perder contas',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'qf-migration-'));t.after(()=>rm(dir,{recursive:true,force:true}));const databasePath=join(dir,'old.sqlite');
+ const db=new DatabaseSync(databasePath);db.exec('CREATE TABLE users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL)');
+ db.prepare('INSERT INTO users VALUES(?,?,?,?,?)').run('legacy','Administrador anterior','anterior@example.com','hash-anterior','Administrador');db.close();
+ const f=await fixture(t,{databasePath});assert.equal((await f.request('/session')).data.needsSetup,false);
+ const check=new DatabaseSync(databasePath);const account=check.prepare('SELECT * FROM users').get();assert.equal(account.id,'legacy');assert.equal(account.email,'anterior@example.com');assert.equal(account.created_at,null);assert.equal(account.last_login,null);check.close();
 });
