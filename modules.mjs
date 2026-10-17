@@ -69,6 +69,8 @@ modules.find(x=>x.key==='materiais').fields.push(sel('online','Exibido na Reserv
 
 modules.find(x=>x.key==='tarifas').fields.push(f('days','Dias da semana','multi',{options:['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']}),sel('duration','Duração',['Todas','30 minutos','1 hora','1h30','2 horas']),sel('modality','Modalidade',['Avulsa','Mensalista','Aula']));
 
+for(const key of ['agenda','cobrancas-agenda','cobrancas-avulso','cobrancas-socios','mensalidades-aulas','cobrancas-aulas','pedidos-lanchonete'])modules.find(x=>x.key===key).fields.find(x=>x.key==='status').options.push('Estornado');
+
 export const moduleMap=Object.fromEntries(modules.map(x=>[x.key,x]));
 export function openingHours(records,date){
  const days=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];

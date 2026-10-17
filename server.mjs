@@ -1,10 +1,11 @@
 import {createServer} from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
-import {randomBytes,randomUUID,scryptSync,timingSafeEqual} from 'node:crypto';
+import {randomBytes,randomUUID,scryptSync,timingSafeEqual,createHash} from 'node:crypto';
 import {readFile,mkdir} from 'node:fs/promises';
 import path,{dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {modules,moduleMap,settings,openingHours,summarizeReport} from './modules.mjs';
+import {migratePayments,createPaymentService} from './payments.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 export function isWithinDirectory(directory,filename,paths=path){
  const relative=paths.relative(paths.resolve(directory),paths.resolve(filename));
@@ -16,14 +17,21 @@ const dayValid=x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&Number.isFinite(Date.parse(x+'T
 const minutes=x=>{if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(x||''))throw fail('Horário inválido.');return Number(x.slice(0,2))*60+Number(x.slice(3));};
 const hashPassword=(password,salt=randomBytes(16).toString('hex'))=>salt+':'+scryptSync(password,salt,64).toString('hex');
 const verifyPassword=(password,hash)=>{const[salt,expected]=hash.split(':');const bytes=scryptSync(password,salt,64);return timingSafeEqual(bytes,Buffer.from(expected,'hex'));};
-export async function createApp({databasePath=join(root,'data','quadrafacil.sqlite'),secureCookies=process.env.NODE_ENV==='production'}={}){
+export async function createApp({databasePath=join(root,'data','quadrafacil.sqlite'),secureCookies=process.env.NODE_ENV==='production',operationalMode=process.env.QF_MODE==='operational',paymentOptions={}}={}){
  if(databasePath!==':memory:')await mkdir(dirname(databasePath),{recursive:true});
  const db=new DatabaseSync(databasePath);db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
  db.exec(`CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,module TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT);CREATE INDEX IF NOT EXISTS records_module ON records(module,deleted_at);CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,data TEXT NOT NULL);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,time TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,module TEXT NOT NULL,record_id TEXT NOT NULL);`);
  db.exec('CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,name TEXT NOT NULL,module TEXT NOT NULL,content BLOB NOT NULL,created_at TEXT NOT NULL,record_count INTEGER NOT NULL)');
+ migratePayments(db);
+ operationalMode=operationalMode||db.prepare("SELECT data FROM settings WHERE key='deployment'").get()?.data==='"operational"';
+ if(operationalMode&&db.prepare("SELECT data FROM settings WHERE key='demo'").get()?.data==='true'){db.close();throw fail('O banco de demonstração não pode iniciar em modo operacional. Use npm run db:operational.');}
+ if(operationalMode)db.prepare('INSERT OR REPLACE INTO settings VALUES(?,?)').run('deployment','"operational"');
  const userColumns=new Set(db.prepare('PRAGMA table_info(users)').all().map(x=>x.name));
  for(const column of ['created_at','last_login'])if(!userColumns.has(column))db.exec('ALTER TABLE users ADD COLUMN '+column+' TEXT');
- const sessions=new Map(), attempts=new Map();
+ const sessionHash=token=>createHash('sha256').update(token||'').digest('hex');
+ const sessions={get:token=>{const row=db.prepare('SELECT user_id AS userId,csrf,expires_at AS expires FROM sessions WHERE token_hash=?').get(sessionHash(token));return row;},set:(token,row)=>db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(sessionHash(token),row.userId,row.csrf,row.expires),delete:token=>db.prepare('DELETE FROM sessions WHERE token_hash=?').run(sessionHash(token))};
+ db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
+ const attempts=new Map();
  const rows=key=>db.prepare('SELECT * FROM records WHERE module=? AND deleted_at IS NULL ORDER BY created_at DESC').all(key).map(r=>({id:r.id,...JSON.parse(r.data),createdAt:r.created_at}));
  const publicUsers=()=>db.prepare('SELECT id,name,email,role,created_at AS createdAt,last_login AS lastLogin FROM users ORDER BY name').all();
  const get=(key,id)=>rows(key).find(r=>r.id===id);
@@ -81,6 +89,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    if(f.type==='ref'&&value&&!get(f.ref,value))throw fail('Referência inválida: '+f.label+'.');
    d[f.key]=value;
   }
+  if(d.status==='Estornado'&&old?.status!=='Estornado')throw fail('Estornos online são confirmados exclusivamente pela API do provedor.');
   if(d.start&&d.end&&minutes(d.start)>=minutes(d.end))throw fail('O horário final deve ser posterior ao inicial.');
   if(key==='bloqueios-quadras'){
    if(d.primaryCourtId===d.secondaryCourtId)throw fail('Selecione duas quadras diferentes.');
@@ -112,6 +121,9 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
  const saveRecord=(key,input,id=randomUUID())=>{
   const old=get(key,id);if(old?.sourceId)throw fail('Recebimento automático: altere o registro de origem.',409);
   const d=validate(key,input,old);
+  const onlineLocked=old&&key!=='contas-bancarias'&&payments.protectedRecord(key,id);
+  if(key==='cobrancas-agenda'&&!old&&payments.protectedRecord('agenda',d.bookingId))throw fail('A reserva está vinculada a cobrança online. Consulte o financeiro.',409);
+  if(onlineLocked&&moduleMap[key].fields.some(field=>field.key!=='notes'&&JSON.stringify(d[field.key])!==JSON.stringify(old[field.key]??d[field.key])))throw fail('Registro vinculado a cobrança online ou conta de recebimento. Consulte o financeiro antes de alterar.',409);
   if(key==='produtos-lanchonete'&&old)d.stock=old.stock;
   if(key==='estoque-lanchonete'){
    if(!Number.isInteger(d.quantity)||d.quantity<1)throw fail('Quantidade deve ser um inteiro positivo.');
@@ -127,7 +139,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    for(const field of ['courtId','customerId','date','start','end','value','status'])if(d[field]!==old[field])throw fail('A reserva já foi recebida. Alterações financeiras exigem estorno, indisponível nesta versão.',409);
    if(old.receivedChargeId)d.receivedChargeId=old.receivedChargeId;
   }
-  put(key,id,{...d,createdAt:old?.createdAt});syncLedger(key,id,d);return{id,...d};
+  put(key,id,{...d,createdAt:old?.createdAt});if(!onlineLocked)syncLedger(key,id,d);return{id,...d};
  };
  const seed=()=>{
   const today=new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
@@ -147,23 +159,26 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
   db.prepare('INSERT OR REPLACE INTO settings VALUES(?,?)').run('preferencias',JSON.stringify({name:'Centro Esportivo Demonstração',defaultDuration:'60'}));
   db.prepare('INSERT OR REPLACE INTO settings VALUES(?,?)').run('demo','true');
  };
- const readBody=async req=>{let body='';for await(const chunk of req){body+=chunk;if(body.length>256000)throw fail('Requisição muito grande.',413);}try{return JSON.parse(body||'{}');}catch{throw fail('JSON inválido.');}};
+ const payments=createPaymentService({db,get,rows,put,syncLedger,transaction,audit,...paymentOptions});
+ const readBody=async req=>{let body='';for await(const chunk of req){body+=chunk;if(body.length>256000)throw fail('Requisição muito grande.',413);}try{const value=JSON.parse(body||'{}');if(!value||typeof value!=='object'||Array.isArray(value))throw fail('JSON inválido.');return value;}catch{throw fail('JSON inválido.');}};
  const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(body));};
  const server=createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');res.setHeader('Content-Security-Policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   try{
    const url=new URL(req.url,'http://localhost'),path=url.pathname;
    if(path.startsWith('/api/')){
+    if(path==='/api/webhooks/mercadopago'&&req.method==='POST'){json(res,200,await payments.webhook(req,url,await readBody(req)));return;}
     if(!['GET','POST','PUT','DELETE'].includes(req.method))throw fail('Método não permitido.',405);
     if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`&&req.headers.origin!==`https://${req.headers.host}`)throw fail('Origem não autorizada.',403);
     const cookie=req.headers.cookie?.match(/(?:^|;\s*)qf_session=([a-f0-9]+)/)?.[1];let session=sessions.get(cookie);
     if(session&&session.expires<Date.now()){sessions.delete(cookie);session=null;}
     const user=session&&publicUsers().find(x=>x.id===session.userId);
-    if(path==='/api/session'&&req.method==='GET'){json(res,200,{user:user||null,csrf:user?session.csrf:null,needsSetup:publicUsers().length===0});return;}
+    if(path==='/api/session'&&req.method==='GET'){json(res,200,{user:user||null,csrf:user?session.csrf:null,needsSetup:publicUsers().length===0,operationalMode});return;}
     if((path==='/api/setup'||path==='/api/login')&&req.method==='POST'){
      const input=await readBody(req),email=String(input.email||'').trim().toLowerCase(),password=String(input.password||'');
      let found;
      if(path==='/api/setup'){
+      if(operationalMode&&input.demo===true)throw fail('O modo operacional não permite criar dados fictícios.');
       if(publicUsers().length)throw fail('O acesso inicial já foi criado.',409);
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<10||password.length>200||!String(input.name||'').trim())throw fail('Informe nome, e-mail válido e senha de 10 a 200 caracteres.');
       transaction(()=>{const id=randomUUID();db.prepare('INSERT INTO users(id,name,email,password,role,created_at,last_login) VALUES(?,?,?,?,?,?,?)').run(id,String(input.name).slice(0,100),email,hashPassword(password),'Administrador',new Date().toISOString(),new Date().toISOString());if(input.demo===true)seed();found=publicUsers().find(x=>x.id===id);});
@@ -184,9 +199,18 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(path==='/api/bootstrap'&&req.method==='GET'){
      const records=Object.fromEntries(modules.map(x=>[x.key,x.key==='usuarios'?(user.role==='Administrador'?publicUsers():[]):rows(x.key)]));
      const preferences=Object.fromEntries(db.prepare('SELECT * FROM settings').all().map(x=>[x.key,JSON.parse(x.data)]));
-     json(res,200,{records,settings:preferences,user,reportFiles:db.prepare('SELECT id,name,module,created_at AS createdAt,record_count AS count FROM reports ORDER BY created_at DESC').all()});return;
+     json(res,200,{records,settings:preferences,user,operationalMode,paymentConfig:payments.status(),invoices:payments.list(),paymentEvents:user.role==='Administrador'?payments.history():[],reportFiles:db.prepare('SELECT id,name,module,created_at AS createdAt,record_count AS count FROM reports ORDER BY created_at DESC').all()});return;
     }
     if(user.role==='Consulta'&&req.method!=='GET')throw fail('Sua permissão permite apenas consulta.',403);
+    if(path==='/api/finance/config'){
+     if(req.method==='GET'){json(res,200,payments.status());return;}
+     if(req.method!=='PUT')throw fail('Método inválido.',405);
+     if(user.role!=='Administrador')throw fail('Apenas administradores podem configurar o financeiro.',403);
+     json(res,200,payments.saveSettings(await readBody(req),user.id));return;
+    }
+    if(path==='/api/finance/verify'&&req.method==='POST'){if(user.role!=='Administrador')throw fail('Apenas administradores podem validar a integração.',403);json(res,200,await payments.verifyConnection(user.id));return;}
+    if(path==='/api/payments/checkout'&&req.method==='POST'){const input=await readBody(req);json(res,201,await payments.createCheckout(input.module,input.recordId,user.id));return;}
+    if(path==='/api/payments/reconcile'&&req.method==='POST'){const input=await readBody(req);json(res,200,await payments.reconcile(input.paymentId,user.id));return;}
     if(path.startsWith('/api/settings/')&&req.method==='PUT'){
      if(user.role!=='Administrador')throw fail('Apenas administradores podem alterar configurações.',403);
      const key=path.split('/')[3],def=settings.find(x=>x.key===key);if(!def)throw fail('Configuração não encontrada.',404);
@@ -257,6 +281,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(moduleMap[key].group==='Configuração'&&user.role!=='Administrador')throw fail('Apenas administradores podem alterar configurações.',403);
     if(req.method==='DELETE'){
      const result=transaction(()=>{
+      if(payments.protectedRecord(key,id))throw fail('Registro vinculado ao financeiro. A exclusão está bloqueada.',409);
       const old=get(key,id);if(!old)throw fail('Registro não encontrado.',404);if(old.sourceId)throw fail('Recebimento automático: altere o registro de origem.',409);
       if(['agenda','pedidos-lanchonete','cobrancas-avulso','cobrancas-socios','cobrancas-agenda','mensalidades-aulas','cobrancas-aulas'].includes(key)&&old.status==='Recebido')throw fail('Registros recebidos devem ser preservados. Estorno não disponível nesta versão.',409);
       for(const def of modules){for(const field of def.fields.filter(x=>x.ref===key))if(rows(def.key).some(x=>x[field.key]===id))throw fail('Este registro está vinculado a '+def.title+'.',409);}
@@ -281,15 +306,16 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     });json(res,req.method==='POST'?201:200,result);return;
    }
    if(req.method!=='GET'&&req.method!=='HEAD')throw fail('Método não permitido.',405);
-   const staticPath=path==='/modules.mjs'?join(root,'modules.mjs'):join(root,'public',path==='/'?'index.html':path.slice(1));
+   const sharedFiles=new Set(['/modules.mjs','/dashboard-data.mjs']);
+   const staticPath=sharedFiles.has(path)?join(root,path.slice(1)):join(root,'public',path==='/'?'index.html':path.slice(1));
    const publicRoot=resolve(root,'public');let filename=staticPath;
-   if(staticPath!==join(root,'modules.mjs')&&!isWithinDirectory(publicRoot,staticPath))throw fail('Arquivo não encontrado.',404);
+   if(!sharedFiles.has(path)&&!isWithinDirectory(publicRoot,staticPath))throw fail('Arquivo não encontrado.',404);
    if(!/\.(html|js|css|svg|mjs|ico|png|woff2|woff|ttf)$/.test(filename))filename=join(root,'public','index.html');
    let content;try{content=await readFile(filename);}catch{throw fail('Arquivo não encontrado.',404);}
    const ext=filename.split('.').pop(),types={html:'text/html',js:'text/javascript',mjs:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',woff2:'font/woff2',woff:'font/woff',ttf:'font/ttf'};res.writeHead(200,{'content-type':(types[ext]||'application/octet-stream')+'; charset=utf-8','cache-control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
   }catch(e){json(res,e.status||500,{error:e.status?e.message:'Não foi possível concluir a operação.'});}
  });
- server.on('close',()=>{db.close();sessions.clear();});return server;
+ server.on('close',()=>{db.close();});return server;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const server=await createApp({databasePath:process.env.QF_DATABASE_PATH||undefined});const port=Number(process.env.PORT||3000);server.listen(port,process.env.HOST||'127.0.0.1',()=>console.log(`Quadra Fácil iniciado na porta ${port}.`));

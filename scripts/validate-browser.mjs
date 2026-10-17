@@ -23,6 +23,14 @@ try{
  const visit=async route=>{console.log('Tela:',route);await page.goto(origin+'/#'+route);await page.locator('#view').waitFor();await page.evaluate(()=>document.fonts.ready);};
  const screenshot=async name=>{await page.waitForFunction(()=>Number(getComputedStyle(document.querySelector('#toast')).opacity)===0);await page.screenshot({path:output+name,fullPage:false});result.screens.push(name);};
  await mkdir(output,{recursive:true});
+ await visit('dashboard');
+ assert.deepEqual(await page.locator('.kpi-title').allTextContents(),['Faturamento do Período','Lucro Líquido','Taxa de Ocupação','Inadimplência','Ticket Médio','Novos Clientes']);
+ assert.equal(await page.locator('.dashboard-periodo input[type=text]').count(),2);
+ const dashboardHeader=await page.locator('.dashboard-header').boundingBox();const expectedDashboard={x:43,y:258,width:1354,height:118};for(const key of Object.keys(expectedDashboard))assert.ok(Math.abs(dashboardHeader[key]-expectedDashboard[key])<=2,'Dashboard '+key+': '+dashboardHeader[key]);result.dashboardHeaderGeometry=dashboardHeader;
+ await screenshot('dashboard-atualizado.png');
+ await page.locator('#dashboard-settings').click();await page.locator('[name=summary]').uncheck();await page.locator('#dashboard-settings-form button[type=submit]').click();assert.equal(await page.locator('.smart-summary').count(),0);
+ await page.locator('#dashboard-settings').click();await page.locator('[name=summary]').check();await page.locator('#dashboard-settings-form button[type=submit]').click();
+ result.checks.push('Dashboard com seis KPIs, período, gráficos e preferências funcionais');
  await visit('quadras');
  assert.deepEqual(await page.locator('.topnav>ul>.navitem>a>span,.topnav>ul>.navitem>button>span').allTextContents(),['Dashboard','Agenda','Cadastros','Aulas / Escolinha','Lanchonete','Financeiro','Relatórios','Configuração','Sair']);
  assert.deepEqual(await page.locator('.page-header-actions a').allTextContents(),['Bloqueios','Cadastrar','Listar']);
@@ -70,7 +78,7 @@ try{
  await visit('escolinha');
  assert.deepEqual(await page.locator('[data-tab]').allTextContents(),['Professores','Turmas','Planos','Alunos','Mensalidades','Cobranças','Controle de Frequência','Modelo de Contrato','Aulas']);
  await page.getByRole('tab',{name:'Turmas',exact:true}).click();await page.locator('#tab-create').click();await page.locator('#page-editor[data-module="escolinha"]').waitFor();result.checks.push('Abas da escolinha e cadastro da turma correta');
- const routes=['dashboard','home-agenda','quadras','tarifas','clientes','materiais','socios','agenda','cobrancas-agenda','cobrancas-socios','escolinha','categorias-produtos-lanchonete','fornecedores-lanchonete','produtos-lanchonete','estoque-lanchonete','mesas-lanchonete','pedidos-lanchonete','fluxo-de-caixa','contas-bancarias','categorias-financeiro','contatos-financeiro','lancamentos','cobrancas-avulso','resumo-cobrancas','movimentacoes-financeiras','relatorios','arquivos-gerados','usuarios','horarios','preferencias','reserva-online'];
+ const routes=['dashboard','home-agenda','quadras','tarifas','clientes','materiais','socios','agenda','cobrancas-agenda','cobrancas-socios','escolinha','categorias-produtos-lanchonete','fornecedores-lanchonete','produtos-lanchonete','estoque-lanchonete','mesas-lanchonete','pedidos-lanchonete','fluxo-de-caixa','contas-bancarias','categorias-financeiro','contatos-financeiro','lancamentos','cobrancas-avulso','resumo-cobrancas','movimentacoes-financeiras','relatorios','arquivos-gerados','usuarios','horarios','preferencias','reserva-online','financeiro-config','pagamentos','mercadopago'];
  for(const route of routes){await visit(route);const content=await page.locator('#view').textContent();assert.ok(content,route);assert.ok(!content.includes('Página não encontrada'),route);assert.equal(await page.locator('#view :is(input,select)').evaluateAll(nodes=>{const ids=nodes.map(x=>x.id).filter(Boolean);return new Set(ids).size===ids.length;}),true,`IDs únicos ${route}`);}
  result.checks.push(`${routes.length} telas navegáveis sem erro JavaScript ou IDs duplicados`);
  await visit('home-agenda');await screenshot('agenda-atualizada.png');

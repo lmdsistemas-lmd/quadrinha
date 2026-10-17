@@ -1,4 +1,4 @@
-// Navigation and page actions observed on the authorized reference site. No account data.
+// Static navigation and reference labels. New finance routes implement the requested Mercado Pago flow.
 export const navigation=[
   {
     "label": "Dashboard",
@@ -130,6 +130,16 @@ export const navigation=[
       {
         "label": "Fluxo de Caixa",
         "route": "fluxo-de-caixa",
+        "icon": ""
+      },
+      {
+        "label": "Configurações Financeiras",
+        "route": "financeiro-config",
+        "icon": ""
+      },
+      {
+        "label": "Pagamentos Online",
+        "route": "pagamentos",
         "icon": ""
       },
       {
@@ -270,6 +280,11 @@ export const navigation=[
         "route": "javascript:void(0)",
         "icon": "",
         "children": [
+          {
+            "label": "Mercado Pago",
+            "route": "mercadopago",
+            "icon": ""
+          },
           {
             "label": "Pagar.me",
             "route": "configuracoes-pagarme",
@@ -850,5 +865,23 @@ export const pageProfiles={
       }
     ],
     "icon": "fas fa-cog"
+  },
+  "financeiro-config": {
+    "title": "Configurações Financeiras",
+    "description": "Configure sua conta financeira e os recebimentos online.",
+    "icon": "fas fa-wallet",
+    "actions": []
+  },
+  "pagamentos": {
+    "title": "Pagamentos Online",
+    "description": "Acompanhe cartão e Pix, confirmações, taxas e estornos.",
+    "icon": "fas fa-credit-card",
+    "actions": []
+  },
+  "mercadopago": {
+    "title": "Configurações Financeiras",
+    "description": "Configure sua conta financeira e os recebimentos online.",
+    "icon": "fas fa-wallet",
+    "actions": []
   }
 };

@@ -4,6 +4,7 @@
     "height": 1000
   },
   "checks": [
+    "Dashboard com seis KPIs, período, gráficos e preferências funcionais",
     "Hierarquia principal, ações de Quadras e geometria do cabeçalho",
     "Cliente: abas preservam campos, Gravar, Listar e Alterar",
     "Quadra: rádios, campos condicionais, seleção de esporte/piso e gravação",
@@ -11,16 +12,23 @@
     "Gerar Mensalidades pela interface",
     "Relatório resumido, download CSV e Arquivos Gerados",
     "Abas da escolinha e cadastro da turma correta",
-    "31 telas navegáveis sem erro JavaScript ou IDs duplicados",
+    "34 telas navegáveis sem erro JavaScript ou IDs duplicados",
     "Menu no celular 390 px e página sem transbordamento horizontal"
   ],
   "screens": [
+    "dashboard-atualizado.png",
     "quadras-atualizado.png",
     "cliente-cadastro-atualizado.png",
     "agenda-atualizada.png",
     "clientes-celular-atualizado.png"
   ],
   "errors": [],
+  "dashboardHeaderGeometry": {
+    "x": 43,
+    "y": 258,
+    "width": 1354,
+    "height": 118
+  },
   "headerGeometry": [
     [
       56,

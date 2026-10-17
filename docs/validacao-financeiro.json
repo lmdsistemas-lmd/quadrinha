@@ -1,0 +1,15 @@
+{
+  "provider": "simulado localmente; nenhuma chamada ao Mercado Pago real",
+  "checks": [
+    "Dashboard vazio usa dados reais do banco, sem valores fictícios",
+    "Configuração de conta e parcelas; validação da conexão com provedor simulado",
+    "Gerar link de cartão/Pix usando o valor persistido na reserva",
+    "Webhook pendente não baixa a reserva; consulta aprovada registra receita e taxa uma vez",
+    "Origem cobrada bloqueia campos financeiros; observação não desfaz a conciliação",
+    "Dashboard móvel em 390 px, sem transbordamento horizontal",
+    "Configuração financeira acessível no celular"
+  ],
+  "errors": [],
+  "passed": true,
+  "providerRequests": 4
+}

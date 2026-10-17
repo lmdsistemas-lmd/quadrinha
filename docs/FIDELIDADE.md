@@ -1,5 +1,7 @@
 # Revisão de menus e botões
 
+Veja também a [revisão do dashboard](DASHBOARD.md) e a [integração financeira](MERCADO-PAGO.md).
+
 A revisão usa a interface autenticada de `sistema.quadrafacil.com.br` como referência, com autorização do proprietário. Foram observadas 36 telas, incluindo cinco cadastros. As consultas ao original não gravaram dados. Todas as gravações de validação foram feitas em um banco temporário da nova aplicação, com dados fictícios.
 
 ## Alterações
@@ -33,7 +35,7 @@ Veja os resultados em [validacao-fidelidade.json](validacao-fidelidade.json), a 
 
 Essa comparação não certifica igualdade de pixels em todas as resoluções, telas ou estados. O conteúdo das tabelas varia com o banco próprio. A identificação do usuário, relógio e indicação de ambiente de testes usam dados locais. Não são reproduzidos contadores de notificações, contratos de assinatura ou dados particulares da conta original.
 
-Os formulários extensos e regras não observáveis do servidor original ainda têm diferenças. As opções de relatórios sem implementação completa são identificadas na própria tela. Portal de reservas, aplicativo, mensagens, pagamentos, emissão fiscal e funções comerciais continuam pendentes; veja [ESCOPO.md](ESCOPO.md). Não há simulação de envio, pagamento ou nota emitida.
+Os formulários extensos e regras não observáveis do servidor original ainda têm diferenças. As opções de relatórios sem implementação completa são identificadas na própria tela. Portal de reservas, aplicativo, mensagens, emissão fiscal e funções comerciais continuam pendentes. O Checkout Pro foi implementado e ainda depende da homologação real; veja [ESCOPO.md](ESCOPO.md). Não há simulação de envio, pagamento ou nota emitida.
 
 ## Repetir a validação
 
