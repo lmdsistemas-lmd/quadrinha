@@ -1,12 +1,14 @@
 # Cobertura da nova versão
 
+A evolução SaaS com três áreas, SMTP, Mercado Pago/WhatsApp por arena, planos e portal público está detalhada em [PLATAFORMA.md](PLATAFORMA.md). A matriz abaixo também documenta o motor standalone reutilizado; os limites de autenticação e integrações anteriores são substituídos pelo guia SaaS quando a aplicação inicia por `npm start`.
+
 A interface foi revisada a partir de 36 telas autenticadas da referência, incluindo menus, ações de cabeçalho, formulários e abas. O cabeçalho de Quadras foi comparado por medidas no Chromium em 1440 px; veja [FIDELIDADE.md](FIDELIDADE.md). Isso não certifica igualdade de pixels de todas as telas nem equivalência completa com o servidor original.
 
 ## Implementado e validado
 
 | Área | Comportamento disponível | Limites |
 | --- | --- | --- |
-| Acesso | Primeiro administrador, login/logout, senhas com scrypt e salt, sessão HttpOnly/SameSite, CSRF, limite de tentativas, usuários e papéis | Sessões persistem após reinício. Sem recuperação de senha, MFA ou painel completo de auditoria |
+| Acesso | Primeiro administrador, login/logout, senhas com scrypt e salt, sessão HttpOnly/SameSite, CSRF, limite de tentativas, usuários e papéis | Sessões persistem após reinício. SaaS possui recuperação por SMTP, confirmação de e-mail e auditoria administrativa; sem MFA |
 | Cadastros | Clientes, quadras, tarifas, materiais, sócios, fornecedores, categorias, produtos, contas e contatos | Formulários são uma seleção dos campos observados, não uma cópia integral de todos os campos do original |
 | Agenda | Grade diária, reservas por cliente/quadra, conflitos, bloqueios entre quadras vinculadas, horários adjacentes, repetição semanal e tarifa por hora calculada no servidor | Aplica o cadastro de horários por dia, com padrão de 07h às 23h e intervalos de 30 minutos; sem feriados, franquias, pacote de dias, rateios ou séries editáveis em lote |
 | Recebimentos | Reserva recebida gera um lançamento; repetição do recebimento não duplica; cobrança da reserva sincroniza o status e não gera segunda receita | Apenas recebimento integral, sem pagamentos parciais e sem estorno bancário. Checkout Pro para cartão/Pix implementado, mas sem homologação externa; boleto não é oferecido |
@@ -24,11 +26,10 @@ Os cadastros têm persistência real e busca. A exportação está nos relatóri
 
 - Paridade visual detalhada de todas as telas, formulários, modais, estados vazios, erros e permissões.
 - Regras completas de tarifas, planos, sócios, recorrência e pagamentos parciais.
-- Recuperação de senha e administração/auditoria operacional.
 - Reserva automática de quadra para aulas e geração em lote das mensalidades escolares.
-- Portal público de reserva online, aplicativo e comunicações.
-- Homologação real do Checkout Pro e notificações com credenciais próprias e domínio HTTPS; WhatsApp, SMS, Pagar.me, boleto e emissão fiscal continuam pendentes.
-- Envio de notificações, documentos oficiais, compras, cartões e recursos comerciais do sistema original.
+- Apps nativos e automação de comunicações; portal público básico e SMTP/WhatsApp estão implementados no SaaS.
+- Homologação real do Checkout Pro e notificações com credenciais próprias e domínio HTTPS; WhatsApp oficial possui adaptador/configuração por arena, ainda sem conta externa validada; SMS, Pagar.me, boleto e emissão fiscal não foram incluídos nesta etapa.
+- Notificações push, documentos oficiais, cartões próprios tokenizados e demais regras comerciais avançadas. Compras de planos usam Checkout Pro; indicações são rastreadas, sem recompensa financeira automática.
 - Homologação com os responsáveis pelas regras do negócio e revisão antes de usar dados reais.
 
 Os serviços externos estão identificados como pendentes na interface. Não são simulados como pagamentos, mensagens ou notas fiscais efetivamente emitidos.

@@ -1,5 +1,7 @@
 # Banco operacional
 
+> O modo SaaS de três áreas usa bancos e credenciais próprios por empresa. Consulte [PLATAFORMA.md](PLATAFORMA.md). As instruções abaixo sobre variáveis globais e banco operacional se referem ao modo standalone anterior.
+
 O armazenamento já era persistente em SQLite. Esta atualização adiciona estrutura relacional para cobranças online, pagamentos do provedor, eventos financeiros, notificações processadas e sessões. Os cadastros existentes continuam em `records`, com as validações e transações no servidor; ainda não foram convertidos integralmente para tabelas específicas por entidade.
 
 ## Separar demonstração e operação

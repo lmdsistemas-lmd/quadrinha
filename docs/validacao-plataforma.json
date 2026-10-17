@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "checks": [
+    "Login do proprietário e painel exclusivo em /admin",
+    "Edição e publicação de plano anual com valor integral",
+    "Empresa acessa o dashboard existente pelo seu endereço",
+    "Formulário de chaves próprias sem devolução do token salvo",
+    "Configuração e publicação da página da arena",
+    "Cliente final cadastra, confirma e-mail e entra no portal da arena",
+    "Reserva real persistida e checkout sem falsa confirmação de recebimento",
+    "Portal e credenciais da arena acessíveis em 390 px",
+    "Bloqueio pela administração interrompe imediatamente os dois acessos da arena"
+  ],
+  "provider": "Mercado Pago e SMTP substituídos por transportes de teste; nenhuma cobrança ou mensagem real",
+  "providerRequests": 2,
+  "errors": []
+}

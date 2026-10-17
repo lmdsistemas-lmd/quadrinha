@@ -57,6 +57,7 @@ export function paymentConfiguration(env=process.env){
 }
 
 export function createPaymentService({db,get,rows,put,syncLedger,transaction,audit,config=paymentConfiguration(),fetchImpl=fetch,now=()=>Date.now()}){
+ if(typeof config==='function'){const configuration=config;config=new Proxy({},{get:(_,key)=>configuration()[key]});}
  const active=new Map();
  const businessDay=value=>new Date(value).toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});
  const timestamp=()=>new Date(now()).toISOString();
@@ -111,7 +112,7 @@ export function createPaymentService({db,get,rows,put,syncLedger,transaction,aud
   try{return await response.json();}catch{throw failure('Resposta inválida do Mercado Pago.',502);}
  };
  const checkoutUrl=value=>{try{const url=new URL(value);if(url.protocol==='https:'&&!url.username&&!url.password&&['www.mercadopago.com.br','sandbox.mercadopago.com.br','www.mercadopago.com','sandbox.mercadopago.com'].includes(url.hostname)&&!url.port)return url.href;}catch{}throw failure('Endereço de checkout inválido na resposta do Mercado Pago.',502);};
- const publicInvoice=row=>({id:row.id,module:row.billing_module,recordId:row.billing_id,description:row.description,amount:row.amount_cents/100,
+ const publicInvoice=row=>({id:row.id,sourceModule:row.source_module,sourceId:row.source_id,module:row.billing_module,recordId:row.billing_id,description:row.description,amount:row.amount_cents/100,
   currency:row.currency,environment:row.environment,status:row.status,checkoutUrl:row.checkout_url,preferenceId:row.preference_id,
   createdAt:row.created_at,updatedAt:row.updated_at,expiresAt:row.expires_at,
   payments:db.prepare('SELECT id,status,amount_cents AS amountCents,refunded_cents AS refundedCents,fee_cents AS feeCents,method,approved_at AS approvedAt FROM provider_payments WHERE invoice_id=?').all(row.id)});
@@ -140,10 +141,10 @@ export function createPaymentService({db,get,rows,put,syncLedger,transaction,aud
    // Persist the attempt before the network call. An uncertain response is never retried as a new charge.
    invoice=db.prepare('SELECT * FROM invoices WHERE id=?').get(invoiceId);
    try{
-    const url=publicUrl(),back=url+'/?checkout=return#pagamentos';
+    const url=publicUrl(),back=url+(config.returnPath||'/?checkout=return#pagamentos');
     const preference=await api('/checkout/preferences',{method:'POST',key,body:{
      items:[{id:invoiceId,title:description,quantity:1,currency_id:'BRL',unit_price:amount/100}],
-     external_reference:invoiceId,metadata:{invoice_id:invoiceId},notification_url:url+'/api/webhooks/mercadopago',
+     external_reference:invoiceId,metadata:{invoice_id:invoiceId},notification_url:url+(config.webhookPath||'/api/webhooks/mercadopago'),
      back_urls:{success:back,pending:back,failure:back},auto_return:'approved',
      payment_methods:{installments:readiness.installments,excluded_payment_types:[{id:'ticket'},{id:'atm'}]},
      expires:true,expiration_date_to:expiresAt
@@ -174,7 +175,7 @@ export function createPaymentService({db,get,rows,put,syncLedger,transaction,aud
    invoice=db.prepare('SELECT * FROM invoices WHERE id=?').get(invoice.id);
    const old=db.prepare('SELECT * FROM provider_payments WHERE id=?').get(String(paymentId));
    if(old&&Date.parse(old.provider_updated_at)>Date.parse(payment.date_last_updated))return publicInvoice(invoice);
-   if(old&&['approved','refunded','charged_back'].includes(old.status)&&!['approved','refunded','charged_back'].includes(payment.status))return publicInvoice(invoice);
+   if(old&&['approved','refunded','charged_back'].includes(old.status)&&!['approved','refunded','charged_back','in_mediation'].includes(payment.status))return publicInvoice(invoice);
    if(old&&refunded<old.refunded_cents)throw failure('O estorno informado diverge do histórico conciliado.',409);
    if(old&&old.invoice_id!==invoice.id)throw failure('Pagamento já vinculado a outra cobrança.',409);
    const eventId=createHash('sha256').update(JSON.stringify([paymentId,payment.status,payment.date_last_updated,refunded,fee])).digest('hex');
@@ -184,6 +185,7 @@ export function createPaymentService({db,get,rows,put,syncLedger,transaction,aud
    let state=invoice.status;
    if(['approved','refunded','charged_back'].includes(payment.status)){
     if(alreadyPaid.length){state='review';event(invoice.id,String(paymentId),'overpayment','Outro pagamento desta cobrança já foi conciliado. Revisão manual necessária.');}
+    else if(get(invoice.billing_module,invoice.billing_id)?.status==='Cancelado'||get(invoice.source_module,invoice.source_id)?.status==='Cancelado'){state='review';event(invoice.id,String(paymentId),'cancelled_origin_payment','Pagamento vinculado a registro cancelado. Revisão manual necessária; a reserva não foi reativada.');}
     else{
      const record=get(invoice.billing_module,invoice.billing_id);if(!record)throw failure('Registro de origem não encontrado.',409);
      // All changes and event deduplication share the same SQLite transaction.

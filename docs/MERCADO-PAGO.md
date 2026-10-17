@@ -1,5 +1,7 @@
 # Mercado Pago: cartão e Pix pelo Checkout Pro
 
+> O modo SaaS de três áreas usa bancos e credenciais próprios por empresa. Consulte [PLATAFORMA.md](PLATAFORMA.md). As instruções abaixo sobre variáveis globais e banco operacional se referem ao modo standalone anterior.
+
 O proprietário escolheu cobranças online pelo **Checkout Pro**. Não foi implementada integração com maquininha Point. O cliente abre o checkout hospedado pelo Mercado Pago; a aplicação não recebe nem armazena número de cartão, CVV ou token de cartão.
 
 ## Situação desta entrega

@@ -1,20 +1,27 @@
 {
-  "name": "quadrafacil-novo",
-  "version": "0.2.0",
+  "name": "quadrinha-platform",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=24.15.0"
   },
   "scripts": {
-    "start": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
-    "dev": "node --use-env-proxy --env-file-if-exists=.env --watch server.mjs",
+    "start": "node --use-env-proxy --env-file-if-exists=.env platform.mjs",
+    "dev": "node --use-env-proxy --env-file-if-exists=.env --watch platform.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check server.mjs && node --check public/app.js && node --check modules.mjs && node --check public/reference-ui.mjs && node --check scripts/validate-browser.mjs && node --check payments.mjs && node --check scripts/operational-database.mjs && node --check scripts/start-operational.mjs && node --check dashboard-data.mjs && node --check public/dashboard-view.mjs && node --check public/finance-view.mjs && node --check scripts/validate-finance-browser.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check modules.mjs && node --check public/reference-ui.mjs && node --check scripts/validate-browser.mjs && node --check payments.mjs && node --check scripts/operational-database.mjs && node --check scripts/start-operational.mjs && node --check dashboard-data.mjs && node --check public/dashboard-view.mjs && node --check public/finance-view.mjs && node --check scripts/validate-finance-browser.mjs && node --check platform.mjs && node --check platform-store.mjs && node --check platform-security.mjs && node --check integrations.mjs && node --check public-booking.mjs && node --check public/platform-ui.js && node --check public/tenant-view.mjs && node --check scripts/platform-admin.mjs && node --check scripts/validate-platform-browser.mjs",
     "test:browser": "node scripts/validate-browser.mjs",
     "start:operational": "node --use-env-proxy --env-file-if-exists=.env scripts/start-operational.mjs",
     "db:operational": "node scripts/operational-database.mjs",
-    "test:finance-browser": "node scripts/validate-finance-browser.mjs"
+    "test:finance-browser": "node scripts/validate-finance-browser.mjs",
+    "start:standalone": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
+    "start:platform": "node --use-env-proxy --env-file-if-exists=.env platform.mjs",
+    "platform:admin": "node --use-env-proxy --env-file-if-exists=.env scripts/platform-admin.mjs",
+    "test:platform-browser": "node scripts/validate-platform-browser.mjs"
   },
-  "packageManager": "npm@11.16.0"
+  "packageManager": "npm@11.16.0",
+  "dependencies": {
+    "nodemailer": "^10.1.2"
+  }
 }

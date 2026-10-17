@@ -17,7 +17,7 @@ const dayValid=x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&Number.isFinite(Date.parse(x+'T
 const minutes=x=>{if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(x||''))throw fail('Horário inválido.');return Number(x.slice(0,2))*60+Number(x.slice(3));};
 const hashPassword=(password,salt=randomBytes(16).toString('hex'))=>salt+':'+scryptSync(password,salt,64).toString('hex');
 const verifyPassword=(password,hash)=>{const[salt,expected]=hash.split(':');const bytes=scryptSync(password,salt,64);return timingSafeEqual(bytes,Buffer.from(expected,'hex'));};
-export async function createApp({databasePath=join(root,'data','quadrafacil.sqlite'),secureCookies=process.env.NODE_ENV==='production',operationalMode=process.env.QF_MODE==='operational',paymentOptions={}}={}){
+export async function createApp({databasePath=join(root,'data','quadrafacil.sqlite'),secureCookies=process.env.NODE_ENV==='production',operationalMode=process.env.QF_MODE==='operational',paymentOptions={},managedAuth=null,managedUsers=null}={}){
  if(databasePath!==':memory:')await mkdir(dirname(databasePath),{recursive:true});
  const db=new DatabaseSync(databasePath);db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
  db.exec(`CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,module TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,deleted_at TEXT);CREATE INDEX IF NOT EXISTS records_module ON records(module,deleted_at);CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,data TEXT NOT NULL);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,time TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,module TEXT NOT NULL,record_id TEXT NOT NULL);`);
@@ -33,7 +33,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
  db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
  const attempts=new Map();
  const rows=key=>db.prepare('SELECT * FROM records WHERE module=? AND deleted_at IS NULL ORDER BY created_at DESC').all(key).map(r=>({id:r.id,...JSON.parse(r.data),createdAt:r.created_at}));
- const publicUsers=()=>db.prepare('SELECT id,name,email,role,created_at AS createdAt,last_login AS lastLogin FROM users ORDER BY name').all();
+ const publicUsers=()=>managedUsers?managedUsers():db.prepare('SELECT id,name,email,role,created_at AS createdAt,last_login AS lastLogin FROM users ORDER BY name').all();
  const get=(key,id)=>rows(key).find(r=>r.id===id);
  const put=(key,id,data)=>{const{createdAt,...clean}=data;db.prepare('INSERT INTO records(id,module,data,created_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted_at=NULL').run(id,key,JSON.stringify(clean),createdAt||new Date().toISOString());};
  const audit=(actor,action,key,id)=>db.prepare('INSERT INTO audit(time,actor,action,module,record_id) VALUES(?,?,?,?,?)').run(new Date().toISOString(),actor,action,key,id);
@@ -172,8 +172,10 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`&&req.headers.origin!==`https://${req.headers.host}`)throw fail('Origem não autorizada.',403);
     const cookie=req.headers.cookie?.match(/(?:^|;\s*)qf_session=([a-f0-9]+)/)?.[1];let session=sessions.get(cookie);
     if(session&&session.expires<Date.now()){sessions.delete(cookie);session=null;}
-    const user=session&&publicUsers().find(x=>x.id===session.userId);
-    if(path==='/api/session'&&req.method==='GET'){json(res,200,{user:user||null,csrf:user?session.csrf:null,needsSetup:publicUsers().length===0,operationalMode});return;}
+    let user=session&&publicUsers().find(x=>x.id===session.userId);
+    if(managedAuth){const trusted=await managedAuth(req);user=trusted?.user;session=trusted?{csrf:trusted.csrf}:null;}
+    if(managedAuth&&['/api/setup','/api/login','/api/logout'].includes(path))throw fail('Use o acesso central da plataforma.',403);
+    if(path==='/api/session'&&req.method==='GET'){json(res,200,{user:user||null,csrf:user?session.csrf:null,needsSetup:!managedAuth&&publicUsers().length===0,operationalMode,managed:!!managedAuth});return;}
     if((path==='/api/setup'||path==='/api/login')&&req.method==='POST'){
      const input=await readBody(req),email=String(input.email||'').trim().toLowerCase(),password=String(input.password||'');
      let found;
@@ -263,6 +265,7 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
     if(!match)throw fail('Rota não encontrada.',404);
     const[,key,id]=match;if(!moduleMap[key])throw fail('Módulo não encontrado.',404);
     if(key==='usuarios'){
+     if(managedAuth&&req.method!=='GET')throw fail('Gerencie os acessos pela plataforma.',403);
      if(user.role!=='Administrador')throw fail('Apenas administradores podem gerenciar usuários.',403);
      if(req.method==='GET'){json(res,200,publicUsers());return;}
      const input=req.method==='DELETE'?{}:await readBody(req);
@@ -315,7 +318,10 @@ export async function createApp({databasePath=join(root,'data','quadrafacil.sqli
    const ext=filename.split('.').pop(),types={html:'text/html',js:'text/javascript',mjs:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',woff2:'font/woff2',woff:'font/woff',ttf:'font/ttf'};res.writeHead(200,{'content-type':(types[ext]||'application/octet-stream')+'; charset=utf-8','cache-control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
   }catch(e){json(res,e.status||500,{error:e.status?e.message:'Não foi possível concluir a operação.'});}
  });
- server.on('close',()=>{db.close();});return server;
+ let closed=false;const closeResources=()=>{if(!closed){closed=true;db.close();}};
+ server.on('close',closeResources);
+ server.business={db,rows,get,put,transaction,audit,saveRecord:(key,input,id)=>transaction(()=>saveRecord(key,input,id)),payments,close:closeResources,
+  provisionUser:({id,name,email,role})=>{db.prepare('INSERT INTO users(id,name,email,password,role,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,email=excluded.email,role=excluded.role').run(id,name,email,'managed',role,new Date().toISOString());return publicUsers().find(x=>x.id===id);}};return server;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const server=await createApp({databasePath:process.env.QF_DATABASE_PATH||undefined});const port=Number(process.env.PORT||3000);server.listen(port,process.env.HOST||'127.0.0.1',()=>console.log(`Quadra Fácil iniciado na porta ${port}.`));
