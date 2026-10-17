@@ -20,7 +20,7 @@ npm run platform:admin
 npm start
 ```
 
-O comando interativo `platform:admin` cria seu acesso com senha oculta, sem administrador padrão. Entre pela rota `/admin`. O servidor usa `127.0.0.1:3000`. Configure o domínio HTTPS em `APP_PUBLIC_URL` e o SMTP pelo painel para habilitar cadastros com confirmação de e-mail. Os oito planos da referência começam como rascunhos anuais para você revisar e publicar.
+O comando interativo `platform:admin` cria seu acesso com senha oculta, sem administrador padrão. Entre pela rota `/admin`. O servidor usa `127.0.0.1:3000`. Para usar no próprio computador, deixe `APP_PUBLIC_URL` vazio e mantenha `HOST=127.0.0.1`: os links de confirmação e recuperação usam automaticamente o endereço local. Configure o SMTP pelo painel para enviar os e-mails. Checkout e webhooks externos dependem de uma origem pública HTTPS, que pode ser um endereço temporário da hospedagem. Os oito planos da referência começam como rascunhos anuais para você revisar e publicar.
 
 | Área | Caminho |
 | --- | --- |
