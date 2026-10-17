@@ -1,0 +1,11 @@
+Quero continuar este projeto existente. Leia primeiro CLAUDE.md, AGENTS.md, CONTINUIDADE_COMPLETA.md e continuidade/PENDENCIAS.md nesta pasta. Não recomece a aplicação do zero.
+
+É o sistema Quadrinha, baseado na observação autorizada do Quadra Fácil, com três áreas: eu como proprietário da plataforma, meu cliente dono das quadras e o jogador que reserva. Preserve o visual de referência, bancos e permissões separados, credenciais próprias de cada arena e o recebimento das minhas assinaturas na minha conta.
+
+O código-base exportado é o commit b086505 da branch main de lmdsistemas-lmd/quadrinha. Quero usar localmente sem domínio e sem APP_PUBLIC_URL; isso já foi implementado. SMTP mantém a confirmação de e-mail. Mercado Pago usa Checkout Pro para cartão/Pix; WhatsApp usa Meta oficial; não quero emissão fiscal nesta etapa.
+
+Confira o código e o estado do Git, instale usando Node 24.18.0/npm ci e rode npm run check e npm test. A última suíte registrada tinha 42 testes aprovados. Não apague bancos, dados, usuários ou chaves para começar. Consulte a documentação do backup e do histórico Git no bundle, se necessário.
+
+Diferencie o que já está implementado, o que ainda depende de configuração externa e as melhorias pendentes. Testes com provedores fictícios não comprovam pagamento/envio real. Não faça cobranças, envios reais, publicação ou alterações no site original sem autorização específica.
+
+Depois da leitura, informe brevemente o que entendeu, as limitações relevantes e siga a próxima tarefa que eu indicar. A lista de pendências é uma orientação para priorizar, não uma ordem para implementar tudo indiscriminadamente.
